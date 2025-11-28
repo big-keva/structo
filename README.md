@@ -1,2 +1,2 @@
 # structo
-Full-text search engine with dynamic metadata and deep native morphological analyses support.
+Full-text search library with dynamic metadata attachments, quotable carcass storage and extended languages support

@@ -1,0 +1,127 @@
+# include "../../queries/parser.hpp"
+# include <mtc/test-it-easy.hpp>
+
+using namespace structo;
+
+TestItEasy::RegisterFunc  test_parser( []()
+{
+  TEST_CASE( "context/queries/parser" )
+  {
+    SECTION( "simple word produces simple word" )
+    {
+      REQUIRE( mtc::to_string( queries::ParseQuery( "a" ) ) == "a" );
+    }
+    SECTION( "query parser is stable to multiple braces" )
+    {
+      REQUIRE( queries::ParseQuery( "((abc))" ) == queries::ParseQuery( "abc" ) );
+
+      SECTION( "... and causes exception on non-closed braces" )
+      {  REQUIRE_EXCEPTION( queries::ParseQuery( "((abc)" ), queries::ParseError );  }
+    }
+    SECTION( "it breaks sequences to subsequences with operators" )
+    {
+      REQUIRE( mtc::to_string( queries::ParseQuery( "a && b & c" ) )
+        == mtc::to_string( mtc::zmap{
+          { "&&", mtc::array_zval{
+            "a", "b", "c" } } } ) );
+
+      SECTION( "operators priority is used" )
+      {
+        REQUIRE( mtc::to_string( queries::ParseQuery( "a & b | c !d" ) )
+          == mtc::to_string( mtc::zmap{
+            { "!", mtc::array_zval{
+              mtc::zmap{ { "||", mtc::array_zval{
+                mtc::zmap{ { "&&", mtc::array_zval{ "a", "b" } } },
+                "c" } } },
+            "d" } } } ) );
+      }
+    }
+    SECTION( "sequences are treated as 'find nearest match'" )
+    {
+      REQUIRE( mtc::to_string( queries::ParseQuery( "a b c" ) ) == mtc::to_string( mtc::zmap{
+        { "fuzzy", mtc::array_zval{ "a", "b", "c" } } } ) );
+      REQUIRE( mtc::to_string( queries::ParseQuery( "a (b & c) d" ) ) == mtc::to_string( mtc::zmap{
+        { "fuzzy", mtc::array_zval{
+          "a",
+          mtc::zmap{ { "&&", mtc::array_zval{ "b", "c" } } },
+          "d" } } } ) );
+    }
+    SECTION( "quoted phrases are treated as phrases" )
+    {
+      SECTION( "double quote means exact match" )
+      {
+        REQUIRE( mtc::to_string( queries::ParseQuery( "\"a b\"" ) ) == mtc::to_string( mtc::zmap{
+          { "quote", mtc::array_zval{ "a", "b" } } } ) );
+      }
+      SECTION( "single quote means exact sequence" )
+      {
+        REQUIRE( mtc::to_string( queries::ParseQuery( "'a b'" ) ) == mtc::to_string( mtc::zmap{
+          { "order", mtc::array_zval{ "a", "b" } } } ) );
+      }
+    }
+    SECTION( "functions add limitations" )
+    {
+      SECTION( "functions have NAME(PARAMS) format" )
+      {
+        REQUIRE_EXCEPTION( queries::ParseQuery( "ctx(5, a" ), queries::ParseError );
+      }
+      SECTION( "context may be limited" )
+      {
+        REQUIRE( mtc::to_string( queries::ParseQuery( "ctx(5, a b c)" ) ) == mtc::to_string( mtc::zmap{
+          { "limit", mtc::zmap{
+            { "context", 5 },
+            { "query", mtc::zmap{
+              { "fuzzy", mtc::array_zval{ "a", "b", "c" } } } } } } } ) );
+        REQUIRE( mtc::to_string( queries::ParseQuery( "ctx(5, a)" ) ) == mtc::to_string( mtc::zmap{
+          { "limit", mtc::zmap{
+            { "context", 5 },
+            { "query", "a" } } } } ) );
+
+        SECTION( "any value except unsigned integer causes exception" )
+        {
+          REQUIRE_EXCEPTION( queries::ParseQuery( "ctx(me)" ), queries::ParseError );
+          REQUIRE_EXCEPTION( queries::ParseQuery( "ctx(5m)" ), queries::ParseError );
+        }
+        SECTION( "context limitation has to have comma and expression" )
+        {
+          REQUIRE_EXCEPTION( queries::ParseQuery( "ctx(5 a b c)" ), queries::ParseError );
+        }
+      }
+      SECTION( "fields may be limited to value or set of values" )
+      {
+        REQUIRE( mtc::to_string( queries::ParseQuery( "cover(title, a b)" ) ) == mtc::to_string( mtc::zmap{
+          { "cover", mtc::zmap{
+            { "field", "title" },
+            { "query", mtc::zmap{
+              { "fuzzy", mtc::array_charstr{ "a", "b" } } } } } } } ) );
+        REQUIRE( mtc::to_string( queries::ParseQuery( "match(title+body, a b)" ) ) == mtc::to_string( mtc::zmap{
+          { "match", mtc::zmap{
+            { "field", mtc::array_charstr{ "body", "title" } },
+            { "query", mtc::zmap{
+              { "fuzzy", mtc::array_charstr{ "a", "b" } } } } } } } ) );
+      }
+    }
+    SECTION( "wildcard operations" )
+    {
+      SECTION( "* and ? are treated as wildcards" )
+      {
+        REQUIRE( mtc::to_string( queries::ParseQuery( "a*" ) ) == mtc::to_string( mtc::zmap{
+          { "wildcard", "a*" } } ) );
+        REQUIRE( mtc::to_string( queries::ParseQuery( "a* ?*b" ) ) == mtc::to_string( mtc::zmap{
+          { "fuzzy", mtc::array_zmap{
+            { { "wildcard", "a*" } },
+            { { "wildcard", "?*b" } } } } } ) );
+      }
+      SECTION( "'*' and '?' escaped by '\\' are treated as regular characters" )
+      {
+        REQUIRE( mtc::to_string( queries::ParseQuery( "a\\*" ) ) == mtc::to_string( mtc::zmap{
+          { "fuzzy", mtc::array_charstr{ "a", "*" } } } ) );
+        REQUIRE( mtc::to_string( queries::ParseQuery( "a* \\?*b" ) ) == mtc::to_string( mtc::zmap{
+          { "fuzzy", mtc::array_zval{
+            mtc::zmap{ { "wildcard", "a*" } },
+            "\?",
+            mtc::zmap{ { "wildcard", "*b" } } } } } ) );
+      }
+    }
+  }
+} );
