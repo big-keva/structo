@@ -35,7 +35,7 @@ int   MergeIndices(
   {
     auto  srcSerialized = storage::posixFS::OpenSerial(
       storage::posixFS::StoragePolicies::OpenInstance( next ) );
-    auto  contentsIndex = indexer::static_::Contents().Create( srcSerialized );
+    auto  contentsIndex = indexer::static_::Index().Create( srcSerialized );
 
     indices.push_back( contentsIndex );
   }
