@@ -1,81 +1,98 @@
-#include <context/lemmatizer.hpp>
-#include <textAPI/DOM-text.hpp>
-
-# include "mtc/test-it-easy.hpp"
+# include "../../../context/lemmatizer.hpp"
 # include "../../../lang-api.hpp"
+# include <mtc/test-it-easy.hpp>
+# include <moonycode/codes.h>
 
 using namespace structo;
 
 # define __Q__(x) #x
 # define QUOTE(x) __Q__(x)
 
-class Stemka: public ILemmatizer
+struct LemmmasStub: public ILemmatizer::IWord
 {
-  implement_lifetime_control
+  implement_lifetime_stub
 
-public:
-  int   Lemmatize( IWord*, const widechar*, size_t ) override;
+  LemmmasStub( std::string& s ): to( s )  {}
 
+  void  AddTerm( uint32_t lex,
+    float flp, const uint8_t* forms, size_t count ) override  {  throw std::logic_error("not implemented");  }
+  void  AddStem( const widechar* pws, size_t len, uint32_t cls,
+    float flp, const uint8_t* forms, size_t count ) override;
+
+protected:
+  std::string&  to;
 };
+
+void  LemmmasStub::AddStem( const widechar* pws, size_t len, uint32_t, float, const uint8_t*, size_t )
+{
+  to += to.empty() ? "" : "|";
+  to += codepages::widetombcs( codepages::codepage_utf8, pws, len );
+}
 
 TestItEasy::RegisterFunc  test_stemka( []()
   {
-    TEST_CASE( "addon/stemka" )
+    TEST_CASE( "addon/stemka-api" )
     {
-      auto  text = textAPI::Document();
-        textAPI::Document{
-          "Сказка о рыбаке и рыбке",
-          "Жили-были старик и SpaceX"
-        }.CopyUtf16( &text );
-      /*
-      auto  body = textAPI::BreakWords( text.GetBlocks() );
-      */
       SECTION( "stemka-api library may be loaded" )
       {
         auto  stemka = mtc::api<ILemmatizer>();
+        auto  sstems = mtc::charstr();
+        auto  lemmas = LemmmasStub( sstems );
 
         if ( !REQUIRE_NOTHROW( stemka = context::LoadLemmatizer( QUOTE(STEMKA_SO_PATH), "" ) ) )
           break;
         if ( !REQUIRE( stemka != nullptr ) )
           break;
 
-        SECTION( "called for text, it creates fuzzy keys for cyrilllic words" )
+        SECTION( "called for text, it creates fuzzy keys for russian words" )
         {
-          /*
-          REQUIRE_NOTHROW( decomposer( &collector,
-            body.GetTokens(),
-            body.GetMarkup() ) );
-
-          for ( int i = 0; i != collector.size(); ++i )
+          SECTION( "for invalid args it returns EINVAL" )
           {
-            fprintf( stdout, "[%u]\n", i );
-
-            for ( auto& skey: collector[i] )
+            if ( REQUIRE_NOTHROW( stemka->Lemmatize( nullptr, u"" ) ) )
+              REQUIRE( stemka->Lemmatize( nullptr, u"" ) == EINVAL );
+            if ( REQUIRE_NOTHROW( stemka->Lemmatize( &lemmas, nullptr, 0 ) ) )
+              REQUIRE( stemka->Lemmatize( &lemmas, nullptr, 0 ) == EINVAL );
+            if ( REQUIRE_NOTHROW( stemka->Lemmatize( &lemmas, u"ррррррррррр"
+              "ррррррррррррррррррррррррррррррррррррррррррррррррррррррррррррррррррррррррррррррррррррррррр" ) ) )
             {
-              widechar  keystr[0x100];
-
-              if ( skey.has_cls() )
-              {
-                fprintf( stdout, "  %u\tcls:%u str:%s\n", skey.get_idl(), skey.get_cls(),
-                  codepages::widetombcs( codepages::codepage_utf8, skey.get_str( keystr, 0x100 ) ).c_str() );
-              }
-                else
-              {
-                fprintf( stdout, "  %u\tstr:%s\n", skey.get_idl(),
-                  codepages::widetombcs( codepages::codepage_utf8, skey.get_str( keystr, 0x100 ) ).c_str() );
-              }
+              REQUIRE( stemka->Lemmatize( &lemmas, u"ррррррррррр"
+              "ррррррррррррррррррррррррррррррррррррррррррррррррррррррррррррррррррррррррррррррррррррррррр" ) == EOVERFLOW );
             }
           }
-          SECTION( "keys are created for all the words" )
+          SECTION( "lemmas are built for regular words" )
           {
-            REQUIRE( collector.size() == 11 );
+            sstems.clear();
+
+            if ( REQUIRE_NOTHROW( stemka->Lemmatize( &lemmas, u"собака" ) ) )
+              REQUIRE( sstems == "собак" );
+
+            sstems.clear();
+
+            if ( REQUIRE_NOTHROW( stemka->Lemmatize( &lemmas, u"кошка" ) ) )
+              REQUIRE( sstems == "кош|кошк" );
+
+            sstems.clear();
+
+            if ( REQUIRE_NOTHROW( stemka->Lemmatize( &lemmas, u"собравшихся" ) ) )
+              REQUIRE( sstems == "собра|собравш" );
           }
-          SECTION( "keys for long cyrillic words are fuzzy" )
+          SECTION( "lemmas are not built for non-cyrillic sequences" )
           {
-            if ( REQUIRE( collector[0].size() != 0 ) )
-              REQUIRE( collector[0].front().get_cls() == 1 );
+            sstems.clear();
+
+            if ( REQUIRE_NOTHROW( stemka->Lemmatize( &lemmas, u"==========" ) ) )
+              REQUIRE( sstems == "" );
+
+            sstems.clear();
+
+            if ( REQUIRE_NOTHROW( stemka->Lemmatize( &lemmas, u"linux" ) ) )
+              REQUIRE( sstems == "" );
+
+            sstems.clear();
+
+            if ( REQUIRE_NOTHROW( stemka->Lemmatize( &lemmas, u"stragdущий" ) ) )
+              REQUIRE( sstems == "stragdущ" );
           }
-          */
         }
       }
     }
