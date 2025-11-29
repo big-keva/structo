@@ -13,17 +13,21 @@ namespace structo {
     constexpr static  unsigned hieroglyph = 0xff;
   };
 
-  struct ILemmatizer: public mtc::Iface
+  struct ILemmatizer: mtc::Iface
   {
-    struct IWord: public mtc::Iface
+    struct IWord: mtc::Iface
     {
-      virtual void  AddTerm( uint32_t lex, float flp,
-        const uint8_t*, size_t ) = 0;
-      virtual void  AddStem( const widechar* pws, size_t len, uint32_t cls, float flp,
-        const uint8_t*, size_t ) = 0;
+      virtual void  AddTerm( uint32_t lex,
+        float flp, const uint8_t* forms, size_t count ) = 0;
+      virtual void  AddStem( const widechar* pws, size_t len, uint32_t cls,
+        float flp, const uint8_t* forms, size_t count ) = 0;
     };
 
     virtual int   Lemmatize( IWord*, const widechar*, size_t ) = 0;
+
+  public:     // wrappers
+    int   Lemmatize( IWord* out, const std::basic_string_view<widechar>& str )
+      {  return Lemmatize( out, str.data(), str.size() );  }
   };
 
   typedef int  (*CreateLemmatizer)( ILemmatizer**, const char* );
