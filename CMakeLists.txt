@@ -12,7 +12,7 @@ else()
 	-Wmissing-format-attribute -Wformat=1 -Wwrite-strings -Wcast-align -Wno-long-long
 	-Woverloaded-virtual -Wno-suggest-attribute=format)
 
-  if (SANITIZER_ENABLED)
+  if (SANITIZE_ENABLED)
 	add_compile_options(-fsanitize=address -fsanitize=pointer-compare -fsanitize=pointer-subtract -fsanitize=leak)
 	add_link_options(-fsanitize=address)
   endif()
