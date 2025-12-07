@@ -230,7 +230,7 @@ namespace dynamic {
   template <class Allocator>
   void  BlockChains<Allocator>::Insert( const std::string_view& key, uint32_t entity, const std::string_view& block, unsigned bkType )
   {
-    auto  hindex = std::hash<std::string_view>{}( { key.data(), key.size() } ) % hashTable.size();
+    auto  hindex = std::hash<std::string_view>()( key ) % hashTable.size();
     auto  hentry = &hashTable[hindex];
     auto  hvalue = mtc::ptr::clean( hentry->load() );
 
@@ -533,10 +533,10 @@ namespace dynamic {
     auto  n_gran = ncount.load() / cache_size;
     auto  pstore = &pfirst;
     auto  pentry = pstore->load();
-    auto  pcache = ppoint.load();
+    auto  pcache = std::max( ppoint.load(), points - 1 );
 
     // ensure only one cache builder
-    if ( ppoint.compare_exchange_strong( pcache, points - 1 ) ) pcache = points;
+    if ( ppoint.compare_exchange_strong( pcache, points - 2 ) ) pcache = points;
       else return;
 
     for ( size_t nindex = 0; pentry != nullptr; pentry = (pstore = &pentry->p_next)->load() )
