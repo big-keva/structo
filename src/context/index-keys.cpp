@@ -244,7 +244,7 @@ namespace context {
       auto  src = (const uint8_t*)data();
       auto  cmp = (const uint8_t*)key.data();
       auto  end = src + std::min( size(), key.size() );
-      int   res;
+      int   res = 0;
 
       while ( src != end && (res = *src - *cmp) == 0 )
         ++src, ++cmp;
