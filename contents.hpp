@@ -28,6 +28,9 @@ namespace structo
     virtual auto  GetExtra() const -> mtc::api<const mtc::IByteBuffer> = 0;
     virtual auto  GetBundle() const -> mtc::api<const mtc::IByteBuffer> = 0;
     virtual auto  GetVersion() const -> uint64_t = 0;
+# if defined( DEBUG_TOOLS )
+    virtual auto  GetBundlePos() const -> int64_t = 0;
+# endif   // DEBUG_TOOLS
   };
 
   struct IStorage: mtc::Iface

@@ -69,6 +69,10 @@ namespace static_ {
         {  return packPos != -1 && dumpStore != nullptr ? dumpStore->Get( packPos ) : nullptr;  }
       auto  GetVersion() const -> uint64_t override
         {  return version;  }
+# if defined( DEBUG_TOOLS )
+      auto  GetBundlePos() const -> int64_t override
+        {  return packPos;  }
+# endif // DEBUG_TOOLS
 
       bool  ValidIndex() const noexcept {  return index != 0 && index != uint32_t(-1);  }
       auto  GetPackPos() const -> int64_t  {  return packPos;  }

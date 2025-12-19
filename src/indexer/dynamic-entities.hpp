@@ -49,6 +49,10 @@ namespace dynamic {
         {  return packPos != -1 && docStore != nullptr ? docStore->Get( packPos ) : nullptr;  }
       auto  GetVersion() const -> uint64_t override
         {  return version;  }
+# if defined( DEBUG_TOOLS )
+      auto  GetBundlePos() const -> int64_t override
+        {  return packPos;  }
+# endif // DEBUG_TOOLS
 
     protected:  // overridables from IByteBuffer
       auto  GetPtr() const noexcept -> const char* override
