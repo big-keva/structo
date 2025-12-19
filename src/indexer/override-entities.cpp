@@ -21,6 +21,9 @@ namespace indexer {
     auto  GetExtra() const -> mtc::api<const mtc::IByteBuffer> override {  return entity->GetExtra();  }
     auto  GetBundle() const -> mtc::api<const mtc::IByteBuffer> override {  return entity->GetBundle();  }
     auto  GetVersion() const -> uint64_t override {  return entity->GetVersion();  }
+# if defined( DEBUG_TOOLS )
+    auto  GetBundlePos() const -> int64_t override {  return entity->GetBundlePos();  }
+# endif // DEBUG_TOOLS
 
   };
 
@@ -42,6 +45,9 @@ namespace indexer {
     auto  GetExtra() const -> mtc::api<const mtc::IByteBuffer> override {  return aprops;  }
     auto  GetBundle() const -> mtc::api<const mtc::IByteBuffer> override {  return entity->GetBundle();  }
     auto  GetVersion() const -> uint64_t override {  return entity->GetVersion();  }
+# if defined( DEBUG_TOOLS )
+    auto  GetBundlePos() const -> int64_t override {  return entity->GetBundlePos();  }
+# endif // DEBUG_TOOLS
 
   };
 
@@ -65,6 +71,9 @@ namespace indexer {
     auto  GetExtra() const -> mtc::api<const mtc::IByteBuffer> override {  return entity->GetExtra();  }
     auto  GetBundle() const -> mtc::api<const mtc::IByteBuffer> override {  return istore->Get( getpos );  }
     auto  GetVersion() const -> uint64_t override {  return entity->GetVersion();  }
+# if defined( DEBUG_TOOLS )
+    auto  GetBundlePos() const -> int64_t override {  return entity->GetBundlePos();  }
+# endif // DEBUG_TOOLS
 
   };
 
