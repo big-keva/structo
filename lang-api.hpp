@@ -13,6 +13,13 @@ namespace structo {
     constexpr static  unsigned hieroglyph = 0xff;
   };
 
+  enum LexemeFlags: unsigned
+  {
+    lex_none  = 0,
+    lex_lemma = 0x01,
+    lex_fuzzy = 0x02
+  };
+
   struct ILemmatizer: mtc::Iface
   {
     struct IWord: mtc::Iface
@@ -23,11 +30,11 @@ namespace structo {
         float flp, const uint8_t* forms, size_t count ) = 0;
     };
 
-    virtual int   Lemmatize( IWord*, const widechar*, size_t ) = 0;
+    virtual int   Lemmatize( IWord*, unsigned /* flags */, const widechar*, size_t ) = 0;
 
   public:     // wrappers
-    int   Lemmatize( IWord* out, const std::basic_string_view<widechar>& str )
-      {  return Lemmatize( out, str.data(), str.size() );  }
+    int   Lemmatize( IWord* out, unsigned opt, const std::basic_string_view<widechar>& str )
+      {  return Lemmatize( out, opt, str.data(), str.size() );  }
   };
 
   typedef int  (*CreateLemmatizer)( ILemmatizer**, const char* );
