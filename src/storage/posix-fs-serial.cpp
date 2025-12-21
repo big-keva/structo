@@ -1,9 +1,27 @@
 # include "../../storage/posix-fs.hpp"
 # include "../../compat.hpp"
 # include "posix-fs-dump-store.hpp"
+# include <mtc/exceptions.h>
 # include <mtc/fileStream.h>
 # include <mtc/wcsstr.h>
+# include <mtc/json.h>
 # include <stdexcept>
+
+template <>
+int*  FetchFrom( int* pfd, void* pv, size_t cc )
+{
+  auto  beg = (char*)pv;
+  auto  end = (char*)pv + cc;
+  int   cch;
+
+  while ( pfd != nullptr && beg != end )
+  {
+    if ( (cch = read( *pfd, beg, end - beg )) > 0 )  beg += cch;
+      else
+    if ( errno != EAGAIN && errno != EWOULDBLOCK )  return nullptr;
+  }
+  return pfd;
+}
 
 namespace structo {
 namespace storage {
@@ -14,14 +32,16 @@ namespace posixFS {
     implement_lifetime_control
 
   public:
-    Serialized( const StoragePolicies& pol ):
-      policies( pol ) {}
+    Serialized( const StoragePolicies& );
 
   public:
     auto  Entities() -> mtc::api<const mtc::IByteBuffer> override;
     auto  Contents() -> mtc::api<const mtc::IByteBuffer> override;
     auto  Linkages() -> mtc::api<mtc::IFlatStream> override;
     auto  Packages() -> mtc::api<IStorage::IDumpStore> override;
+
+    auto  GetStats() -> mtc::zmap override  {  return idxStats;  }
+
     auto  Commit() -> mtc::api<ISerialized> override;
     void  Remove() override;
 
@@ -34,6 +54,8 @@ namespace posixFS {
     mtc::api<const mtc::IByteBuffer>      contents;
     mtc::api<      mtc::IFlatStream>      linkages;
     mtc::api<IStorage::IDumpStore>        packages;
+
+    mtc::zmap                             idxStats;
 
   };
 
@@ -64,7 +86,39 @@ namespace posixFS {
 
   // Serialized implementation
 
- /*
+  Serialized::Serialized( const StoragePolicies& pol ):
+    policies( pol )
+  {
+    auto  policy = policies.GetPolicy( bulletin );
+    auto  stpath = std::string();
+    int   handle;
+
+    if ( policy == nullptr )
+      throw std::logic_error( "invalid policy @" __FILE__ ":" LINE_STRING );
+
+    if ( (handle = open( (stpath = policy->GetFilePath( bulletin )).c_str(), O_RDONLY )) < 0 )
+    {
+      throw mtc::FormatError<mtc::file_error>( "could not open file '%s', error %d (%s)",
+        stpath.c_str(), errno, strerror( errno ) );
+    }
+
+    try
+    {
+      if ( mtc::json::Parse( &handle, idxStats ) == nullptr )
+      {
+        throw mtc::FormatError<std::invalid_argument>( "error reading file '%s', error %d (%s)",
+          stpath.c_str(), errno, strerror( errno ) );
+      }
+    }
+    catch ( ... )
+    {
+      close( handle );
+      throw;
+    }
+    close( handle );
+  }
+
+  /*
   * Serialized::Entities()
   *
   * Loads and returns the byte buffer for entities table access.

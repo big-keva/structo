@@ -1,6 +1,4 @@
-#include <contents.hpp>
-#include <shared_mutex>
-#include <mtc/recursive_shared_mutex.hpp>
+# include "../../contents.hpp"
 
 namespace structo {
 namespace storage {

@@ -5,10 +5,27 @@
 # include <mtc/fileStream.h>
 # include <mtc/bufStream.h>
 # include <mtc/wcsstr.h>
+# include <mtc/json.h>
 # include <functional>
 # include <stdexcept>
 # include <chrono>
 # include <thread>
+
+template <>
+int*  Serialize( int* pfd, const void* pv, size_t cc )
+{
+  auto  beg = (const char*)pv;
+  auto  end = beg + cc;
+  int   cch;
+
+  while ( pfd != nullptr && beg != end )
+  {
+    if ( (cch = write( *pfd, beg, end - beg )) > 0 )  beg += cch;
+      else
+    if ( errno != EAGAIN && errno != EWOULDBLOCK )  return nullptr;
+  }
+  return pfd;
+}
 
 namespace structo {
 namespace storage {
@@ -42,6 +59,8 @@ namespace posixFS {
     auto  Linkages() -> mtc::api<mtc::IByteStream> override {  return linkages;  }
     auto  Packages() -> mtc::api<IStorage::IDumpStore> override {  return packages;  }
 
+    void  SetStats( const mtc::zmap& stats ) override {  idxStats = stats;  }
+
     auto  Commit() -> mtc::api<IStorage::ISerialized> override;
     void  Remove() override;
 
@@ -53,6 +72,8 @@ namespace posixFS {
     mtc::api<mtc::IByteStream>      contents;
     mtc::api<mtc::IByteStream>      linkages;
     mtc::api<IStorage::IDumpStore>  packages;
+
+    mtc::zmap                       idxStats;
 
   };
 
@@ -80,8 +101,8 @@ namespace posixFS {
   auto  Sink::Commit() -> mtc::api<IStorage::ISerialized>
   {
     auto    policy = policies.GetPolicy( bulletin );
+    auto    stpath = std::string();
     int     handle;
-    ssize_t nwrite;
 
     if ( policy == nullptr )
       throw std::invalid_argument( "policy does not contain record for '.stats' file" );
@@ -91,8 +112,26 @@ namespace posixFS {
     linkages = nullptr;
     packages = nullptr;
 
-    handle = open( policy->GetFilePath( Unit::bulletin ).c_str(), O_CREAT + O_RDWR, 0644 );
-      void(nwrite = write( handle, "index completion marker\n", 24 ));
+    if ( (handle = open( (stpath = policy->GetFilePath( bulletin )).c_str(), O_CREAT + O_RDWR, 0644 )) < 0 )
+    {
+      throw mtc::FormatError<mtc::file_error>( "could not open file '%s', error %d (%s)",
+        stpath.c_str(), errno, strerror( errno ) );
+    }
+
+    if ( mtc::json::Print( &handle, idxStats, mtc::json::print::decorated() ) == nullptr )
+    {
+      close( handle );
+
+      throw mtc::FormatError<mtc::file_error>( "error writing file '%s', error %d (%s)",
+        stpath.c_str(), errno, strerror( errno ) );
+    }
+    if ( fdatasync( handle ) < 0 )
+    {
+      close( handle );
+
+      throw mtc::FormatError<mtc::file_error>( "could not synx file '%s', error %d (%s)",
+        stpath.c_str(), errno, strerror( errno ) );
+    }
     close( handle );
 
     doRemove = false;
