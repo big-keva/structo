@@ -126,7 +126,7 @@ namespace formats {
     if ( (pbeg = ::FetchFrom( pbeg, size )) == nullptr || pbeg == pend )
       return 0;
 
-    while ( size-- > 0 )
+    while ( size-- > 0 && tbeg != tend )
     {
       unsigned  format;
       unsigned  ulower;
