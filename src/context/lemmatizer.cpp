@@ -5,14 +5,6 @@
 namespace structo {
 namespace context {
 
-  class MiniModule final: public ILemmatizer
-  {
-    implement_lifetime_control
-
-  public:
-    int   Lemmatize( IWord*, const widechar*, size_t ) override {  return 0;  }
-  };
-
   class DynaModule final: public ILemmatizer
   {
     implement_lifetime_control
@@ -21,19 +13,12 @@ namespace context {
     DynaModule( mtc::SharedLibrary, const char* );
 
   public:
-    int   Lemmatize( IWord*, const widechar*, size_t ) override;
+    int   Lemmatize( IWord*, unsigned, const widechar*, size_t ) override;
 
   protected:
     std::shared_ptr<std::pair<mtc::SharedLibrary, mtc::api<ILemmatizer>>>
       holder;
 
-  };
-
-  class MaxiModule final: public ILemmatizer
-  {
-    implement_lifetime_control
-
-    int   Lemmatize( IWord*, const widechar*, size_t ) override {  return 0;  }
   };
 
   // DynaModule implementation
@@ -51,14 +36,9 @@ namespace context {
       libmod, module );
   }
 
-  int   DynaModule::Lemmatize( IWord* lemmas, const widechar* pwsstr, size_t cchstr )
+  int   DynaModule::Lemmatize( IWord* lemmas, unsigned uflags, const widechar* pwsstr, size_t cchstr )
   {
-    return holder != nullptr ? holder->second->Lemmatize( lemmas, pwsstr, cchstr ) : EFAULT;
-  }
-
-  auto  MiniLemmatizer() -> mtc::api<ILemmatizer>
-  {
-    return new MiniModule();
+    return holder != nullptr ? holder->second->Lemmatize( lemmas, uflags, pwsstr, cchstr ) : EFAULT;
   }
 
   auto  LoadLemmatizer( const char* path, const char* args ) -> mtc::api<ILemmatizer>
@@ -66,6 +46,11 @@ namespace context {
     auto  module = mtc::SharedLibrary::Load( path );
 
     return new DynaModule( module, args );
+  }
+
+  auto  LoadLemmatizer( const std::string& path, const std::string& args ) -> mtc::api<ILemmatizer>
+  {
+    return LoadLemmatizer( path.c_str(), args.c_str() );
   }
 
 }}

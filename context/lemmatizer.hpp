@@ -5,9 +5,8 @@
 namespace structo {
 namespace context {
 
-  auto  LoadLemmatizer( const char*, const char* ) -> mtc::api<ILemmatizer>;
-  auto  MiniLemmatizer() -> mtc::api<ILemmatizer>;
-  auto  MaxiLemmatizer() -> mtc::api<ILemmatizer>;
+  auto  LoadLemmatizer( const char*, const char* = nullptr ) -> mtc::api<ILemmatizer>;
+  auto  LoadLemmatizer( const std::string&, const std::string& = {} ) -> mtc::api<ILemmatizer>;
 
 }};
 
