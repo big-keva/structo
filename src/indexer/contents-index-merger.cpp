@@ -178,6 +178,7 @@ namespace fusion {
     auto  selectSet = std::vector<size_t>( indices.size() );
     auto  entityStm = storage->Entities();
     auto  bundleStm = storage->Packages();
+    auto  entity_id = uint32_t(1);
 
   // create iterators list
     for ( auto& next: indices )
@@ -187,7 +188,7 @@ namespace fusion {
     if ( Entity( std::allocator<char>() ).Serialize( entityStm.ptr() ) == nullptr )
       throw std::runtime_error( "Failed to serialize entities" );
 
-    for ( auto entityId = uint32_t(1); ; )
+    for ( ; ; )
     {
       auto  nCount = size_t(0);
       auto  iFresh = size_t(-1);
@@ -223,7 +224,7 @@ namespace fusion {
 
         if ( Entity( std::allocator<char>() )
           .SetId( iterators[iFresh].Curr() )
-          .SetIndex( entityId )
+          .SetIndex( entity_id )
           .SetExtra( make_view( iterators[iFresh]->GetExtra() ) )
           .SetPackPos( bundlePos )
           .SetVersion( iterators[iFresh]->GetVersion() ).Serialize( entityStm.ptr() ) == nullptr )
@@ -235,7 +236,7 @@ namespace fusion {
         for ( size_t i = 0; i != nCount; ++i )
         {
           if ( selectSet[i] == iFresh )
-            remapId[selectSet[i]][iterators[selectSet[i]]->GetIndex()] = entityId++;
+            remapId[selectSet[i]][iterators[selectSet[i]]->GetIndex()] = entity_id++;
           else
             remapId[selectSet[i]][iterators[selectSet[i]]->GetIndex()] = uint32_t(-1);
 
@@ -243,6 +244,7 @@ namespace fusion {
         }
       } else break;
     }
+    statMap["obj-count"] = uint32_t(entity_id);
   }
 
   void  ContentsMerger::MergeContents()
@@ -311,6 +313,9 @@ namespace fusion {
     }
 
     radixTree.Serialize( contents.ptr() );
+
+    statMap["key-count"] = uint32_t(radixTree.size());
+    statMap["link-size"] = keyRecord.offset;
   }
 
   auto  ContentsMerger::Add( mtc::api<IContentsIndex> index ) -> ContentsMerger&
@@ -355,8 +360,25 @@ namespace fusion {
 
   auto  ContentsMerger::operator()() -> mtc::api<IStorage::ISerialized>
   {
+    auto  inputStat = statMap.set_array_zmap( "sources" );
+
+  // check valid call
+    if ( indices.size() == 0 )
+      throw std::logic_error( "empty index list to be merged @" __FILE__ ":" LINE_STRING );
+
+  // create iterators list
+    for ( auto& next : indices )
+    {
+      auto  srcStats = next->Commit()->GetStats();
+        srcStats.erase( "sources" );
+      inputStat->push_back( srcStats );
+    }
+
     MergeEntities();
     MergeContents();
+
+    storage->SetStats( statMap );
+
     return storage->Commit();
   }
 
