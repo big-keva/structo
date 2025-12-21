@@ -127,7 +127,8 @@ namespace dynamic {
     auto  Remove( const Bitmap<OtherAllocator>& ) -> BlockChains&;
     auto  StopIt() -> BlockChains&;
 
-    auto  KeySet( const std::string_view& ) const -> KeyLister;
+    auto  ListKeys( const std::string_view& ) const -> KeyLister;
+    auto  KeyCount() const -> size_t;
 
    /*
     * bool  Verify() const;
@@ -138,7 +139,7 @@ namespace dynamic {
 
   public:     //serialization
     template <class O1, class O2>
-    bool  Serialize( O1*, O2* );
+    auto  Serialize( O1*, O2* ) -> uint64_t;
     bool  VerifyIds( unsigned ) const;
 
   protected:
@@ -314,7 +315,7 @@ namespace dynamic {
   }
 
   template <class Allocator>
-  auto  BlockChains<Allocator>::KeySet( const std::string_view& key ) const -> KeyLister
+  auto  BlockChains<Allocator>::ListKeys( const std::string_view& key ) const -> KeyLister
   {
     auto  templStr = std::string( key.begin(), key.end() );
     auto  templLen = size_t(0);
@@ -331,6 +332,14 @@ namespace dynamic {
       else radixBeg = radixTree.cbegin( std::allocator<char>() );
 
     return KeyLister( radixLock, std::move( radixBeg ), std::move( radixEnd ), std::move( templStr ) );
+  }
+
+  template <class Allocator>
+  auto  BlockChains<Allocator>::KeyCount() const -> size_t
+  {
+    auto  treeLock = mtc::make_shared_lock( radixLock, std::defer_lock );
+
+    return radixTree.size();
   }
 
   template <class Allocator>
@@ -363,7 +372,7 @@ namespace dynamic {
   */
   template <class Allocator>
   template <class O1, class O2>
-  bool  BlockChains<Allocator>::Serialize( O1* index, O2* chain )
+  auto  BlockChains<Allocator>::Serialize( O1* index, O2* chain ) -> uint64_t
   {
     uint64_t  offset = 0;
 
@@ -372,7 +381,11 @@ namespace dynamic {
     // ключей в hash-table и в radixTree
     for ( auto& next: hashTable )
       for ( auto tostep = next.load(); tostep != nullptr; tostep = tostep->pchain.load() )
-        assert( radixTree.Search( { tostep->data(), tostep->cchkey } ) != nullptr );
+        if ( radixTree.Search( { tostep->data(), tostep->cchkey } ) == nullptr )
+        {
+          fprintf( stderr, "key '%s' not found in radix tree\n",
+            std::string( tostep->data(), tostep->cchkey ).c_str() );
+        }
 # endif   // VERIFY_KEY_COUNT
 
   // store all the index chains saving offset, count and length to the tree
@@ -418,7 +431,13 @@ namespace dynamic {
     }
 
   // store radix tree
-    return chain != nullptr && (index = radixTree.Serialize( index )) != nullptr;
+    if ( chain == nullptr )
+      return uint64_t(-1);
+
+    if ( (index = radixTree.Serialize( index )) == nullptr )
+      return uint64_t(-1);
+
+    return offset;
   }
 
   template <class Allocator>
@@ -450,8 +469,8 @@ namespace dynamic {
 
     for ( runThread = true; runThread; )
     {
-      if ( keySyncro.wait_for( locker, std::chrono::milliseconds( 100 ) ) == std::cv_status::timeout )
-        continue;
+      keySyncro.wait_for( locker,
+        std::chrono::milliseconds( 100 ) );
       while ( keysQueue.Get( addkey ) )
         radixTree.Insert( { addkey->data(), addkey->cchkey }, { addkey, 0, 0 } );
     }

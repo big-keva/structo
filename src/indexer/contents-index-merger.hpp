@@ -31,6 +31,7 @@ namespace fusion {
     mtc::api<IStorage::IIndexStore>       storage;
     std::vector<mtc::api<IContentsIndex>> indices;
     std::vector<std::vector<uint32_t>>    remapId;
+    mtc::zmap                             statMap{ { "created-by", "index-merger" } };
 
   };
 
