@@ -1,6 +1,8 @@
 # include "../../context/fields-man.hpp"
 # include <mtc/wcsstr.h>
 # include <unordered_map>
+# include <shared_mutex>
+#include <mtc/recursive_shared_mutex.hpp>
 
 namespace structo {
 namespace context {
@@ -19,46 +21,67 @@ namespace context {
 
   struct FieldManager::impl
   {
-    using map_type = std::unordered_map<std::string, uint32_t>;
+    using str_map_t = std::unordered_map<std::string, std::shared_ptr<FieldOptions>>;
+    using int_map_t = std::unordered_map<unsigned,    std::shared_ptr<FieldOptions>>;
 
-    std::vector<FieldOptions>   fields;
-    map_type                    strmap;
+    std::shared_mutex fmutex;
+    str_map_t         strmap;
+    int_map_t         intmap;
   };
 
   auto  FieldManager::Add( const std::string_view& name ) -> FieldOptions*
   {
-    impl::map_type::iterator  pfound;
+    impl::str_map_t::iterator  pfound;
 
     if ( data == nullptr )
       data = std::make_shared<impl>();
 
+    auto  shlock = mtc::make_shared_lock( data->fmutex );
+    auto  exlock = mtc::make_unique_lock( data->fmutex, std::defer_lock );
+
     if ( (pfound = data->strmap.find( std::string( name ) )) == data->strmap.end() )
     {
-      pfound = data->strmap.insert( { std::string( name ), uint32_t(data->fields.size()) } ).first;
-        data->fields.resize( data->fields.size() + 1 );
-        data->fields.back().id = pfound->second;
-        data->fields.back().name = pfound->first;
+      shlock.unlock();  exlock.lock();
+
+      if ( (pfound = data->strmap.find( std::string( name ) )) == data->strmap.end() )
+      {
+        auto  nextId = uint32_t(data->strmap.size());
+        auto  fdName = std::string( name );
+        auto  pfield = std::shared_ptr<FieldOptions>( new FieldOptions{ nextId, fdName } );
+
+        pfound =
+          data->strmap.insert( { fdName,
+          data->intmap.insert( { nextId, pfield } ).first->second} ).first;
+      }
     }
 
-    return &data->fields.at( pfound->second );
+    return pfound->second.get();
   }
 
   auto  FieldManager::Get( const std::string_view& name ) const -> const FieldOptions*
   {
     if ( data != nullptr )
     {
+      auto  shlock = mtc::make_shared_lock( data->fmutex );
       auto  pfound = data->strmap.find( std::string( name ) );
 
       if ( pfound != data->strmap.end() )
-        return &data->fields.at( pfound->second );
+        return pfound->second.get();
     }
     return nullptr;
   }
 
   auto  FieldManager::Get( unsigned id ) const -> const FieldOptions*
   {
-    return data != nullptr && id < data->fields.size() ?
-      &data->fields.at( id ) : nullptr;
+    if ( data != nullptr )
+    {
+      auto  shlock = mtc::make_shared_lock( data->fmutex );
+      auto  pfound = data->intmap.find( id );
+
+      if ( pfound != data->intmap.end() )
+        return pfound->second.get();
+    }
+    return nullptr;
   }
 
 // load/save fields
