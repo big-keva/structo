@@ -151,13 +151,17 @@ namespace context {
   {
     auto  curlen = buf.size();
 
-  // lemmatize with languages
+  // lemmatize with language modules in dictionary mode
     for ( auto& lang: languages )
-      lang.module->Lemmatize( InsertTerms( buf, lang.langId ).ptr(), str, len );
+      lang.module->Lemmatize( InsertTerms( buf, lang.langId ).ptr(), lex_lemma, str, len );
 
-  // check for hieroglyph
     if ( buf.size() == curlen )
+    {
       buf.push_back( Lexeme( 0xff, codepages::strtolower( str, len ), buf.get_allocator() ) );
+
+      for ( auto& lang: languages )
+        lang.module->Lemmatize( InsertTerms( buf, lang.langId ).ptr(), lex_fuzzy, str, len );
+    }
 
     return buf;
   }
