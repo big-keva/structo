@@ -137,7 +137,7 @@ namespace dynamic {
   public:
     ContentsList( ContentsIndex* ix, const std::string_view& tp ):
       contents( ix ),
-      iterator( contents->contents.KeySet( tp ) ) {}
+      iterator( contents->contents.ListKeys( tp ) ) {}
 
   public:
     auto  Curr() -> std::string override  {  return iterator.CurrentKey();  }
@@ -148,6 +148,21 @@ namespace dynamic {
     Contents::KeyLister     iterator;
 
   };
+
+  auto  TimeAsString() -> std::string
+  {
+    auto  sys_tm = std::chrono::system_clock::now();
+    auto  asTime = std::chrono::system_clock::to_time_t( sys_tm );
+    auto  msTime = std::chrono::duration_cast<std::chrono::milliseconds>(sys_tm.time_since_epoch()).count() % 1000;
+    char  szTime[64];
+    auto  moment = std::tm();
+
+    localtime_r( &asTime, &moment );
+
+    strftime( szTime, sizeof(szTime), "%Y:%m:%d %H:%M:%S.%%03d", &moment );
+
+    return mtc::strprintf( szTime, msTime );
+  }
 
   // ContentsIndex implementation
 
@@ -247,6 +262,8 @@ namespace dynamic {
 
   auto  ContentsIndex::Commit() -> mtc::api<IStorage::ISerialized>
   {
+    uint64_t  linkagesSize;
+
     if ( pStorage == nullptr )
       throw std::logic_error( "output storage is not defined, but FlushSink() was called" );
 
@@ -257,7 +274,15 @@ namespace dynamic {
 
   // store entities table
     entities.Serialize( pStorage->Entities().ptr() );
+    linkagesSize =
     contents.Serialize( pStorage->Contents().ptr(), pStorage->Linkages().ptr() );
+
+    pStorage->SetStats( {
+      { "write-time", TimeAsString() },
+      { "created-by", "dynamic-contents" },
+      { "obj-count", uint32_t(entities.GetEntityCount()) },
+      { "key-count", uint32_t(contents.KeyCount()) },
+      { "link-size", linkagesSize } } );
 
     return pStorage->Commit();
   }
