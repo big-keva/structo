@@ -104,9 +104,6 @@ namespace fusion  {
   {
     pthread_setname_np( pthread_self(), "merger::Thread" );
 
-    for ( auto& next: layers )
-      merger.Add( next.pIndex );
-
   // first merge index to the storage
   // then try open the new static index from the storage
     try
