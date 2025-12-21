@@ -34,7 +34,7 @@ namespace structo {
   {
     virtual auto  Add( const std::string_view& ) ->             FieldOptions* = 0;
     virtual auto  Get( const std::string_view& ) const -> const FieldOptions* = 0;
-    virtual auto  Get( unsigned       ) const -> const FieldOptions* = 0;
+    virtual auto  Get( unsigned                ) const -> const FieldOptions* = 0;
   };
 
 }
