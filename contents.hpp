@@ -3,7 +3,8 @@
 # include <mtc/iStream.h>
 # include <mtc/iBuffer.h>
 # include <functional>
-# include "mtc/span.hpp"
+# include <mtc/span.hpp>
+# include <mtc/zmap.h>
 
 namespace structo
 {
@@ -51,6 +52,8 @@ namespace structo
     virtual auto  Linkages() -> mtc::api<mtc::IByteStream> = 0;
     virtual auto  Packages() -> mtc::api<IDumpStore> = 0;
 
+    virtual void  SetStats( const mtc::zmap& ) = 0;
+
     virtual auto  Commit() -> mtc::api<ISerialized> = 0;
     virtual void  Remove() = 0;
   };
@@ -63,6 +66,8 @@ namespace structo
     virtual auto  Contents() -> mtc::api<const mtc::IByteBuffer> = 0;
     virtual auto  Linkages() -> mtc::api<mtc::IFlatStream> = 0;
     virtual auto  Packages() -> mtc::api<IDumpStore> = 0;
+
+    virtual auto  GetStats() -> mtc::zmap = 0;
 
     virtual auto  Commit() -> mtc::api<ISerialized> = 0;
     virtual void  Remove() = 0;
