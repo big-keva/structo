@@ -1048,7 +1048,7 @@ namespace queries {
   // request terms for the word
     for ( auto& lexeme: lexemes )
       if ( (pkblock = index->GetKeyBlock( { lexeme.data(), lexeme.size() } )) != nullptr )
-        ablocks.emplace_back( pkblock, TermRanker( sets.fieldSet, lexeme, fWeight, false ) );
+        ablocks.emplace_back( pkblock, TermRanker( sets.fieldSet, lexeme, fWeight, sets.isStrict ) );
 
   // if nothing found, return nullptr
     if ( ablocks.size() == 0 )
