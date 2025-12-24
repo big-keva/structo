@@ -26,7 +26,7 @@ namespace context {
     return std::move( Lemmatize( lexbuf, str.c_str(), str.length() ) );
   }
 
-  auto  Processor::Initialize( unsigned langId, const mtc::api<ILemmatizer>& module ) -> Processor&
+  auto  Processor::AddModule( unsigned langId, const mtc::api<ILemmatizer>& module ) -> Processor&
   {
     languages.push_back( { langId, module } );
     return *this;

@@ -46,7 +46,7 @@ namespace context {
     auto  WordBreak( const ITextView&, const FieldHandler* = nullptr ) const -> Image;
 
   public:
-    auto  Initialize( unsigned langId, const mtc::api<ILemmatizer>& ) -> Processor&;
+    auto  AddModule( unsigned langId, const mtc::api<ILemmatizer>& ) -> Processor&;
     auto  Initialize( const mtc::span<const std::pair<unsigned, const mtc::api<ILemmatizer>>>& ) ->Processor&;
 
   protected:
@@ -73,8 +73,9 @@ namespace context {
       lemmas.emplace_back( langId, lex );
       lemmas.back().GetForms().set( forms, count );
     }
-    void  AddStem( const widechar* pws, size_t len, uint32_t cls, float, const uint8_t* forms, size_t count ) override
+    void  AddStem( const widechar* pws, size_t len, uint32_t cls, float rng, const uint8_t* forms, size_t count ) override
     {
+      (void)rng;
       lemmas.emplace_back( langId, cls, pws, len, lemmas.get_allocator() );
       lemmas.back().GetForms().set( forms, count );
     }
