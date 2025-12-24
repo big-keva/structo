@@ -1,3 +1,0 @@
-[submodule "addon/stemka-api/contrib/stemka"]
-	path = addon/stemka-api/contrib/stemka
-	url = https://github.com/big-keva/stemka.git
