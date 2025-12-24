@@ -19,10 +19,22 @@ namespace context {
     return !(k == s);
   }
 
+  struct OptionsValue: FieldOptions
+  {
+    std::string namePlace;
+
+    OptionsValue( unsigned fdId, const std::string& fdSz ): namePlace( fdSz )
+    {
+      id = fdId;
+      name = namePlace;
+    }
+
+  };
+
   struct FieldManager::impl
   {
-    using str_map_t = std::unordered_map<std::string, std::shared_ptr<FieldOptions>>;
-    using int_map_t = std::unordered_map<unsigned,    std::shared_ptr<FieldOptions>>;
+    using str_map_t = std::unordered_map<std::string, std::shared_ptr<OptionsValue>>;
+    using int_map_t = std::unordered_map<unsigned,    std::shared_ptr<OptionsValue>>;
 
     std::shared_mutex fmutex;
     str_map_t         strmap;
@@ -47,7 +59,7 @@ namespace context {
       {
         auto  nextId = uint32_t(data->strmap.size());
         auto  fdName = std::string( name );
-        auto  pfield = std::shared_ptr<FieldOptions>( new FieldOptions{ nextId, fdName } );
+        auto  pfield = std::make_shared<OptionsValue>( nextId, fdName );
 
         pfound =
           data->strmap.insert( { fdName,
