@@ -62,15 +62,18 @@ namespace context {
           {  return uint8_t(uOrder * sizeof(uint64_t) * CHAR_BIT + uShift);  }
         auto  operator ++() -> const_iterator&
           {
-            if ( ++uShift == sizeof(uint64_t) * CHAR_BIT )
-              {  ++uOrder;  uShift = 0;  }
-
-            while ( uOrder < 4 )
+            if ( uOrder < 4 )
             {
-              while ( uShift < sizeof(uint64_t) * CHAR_BIT && (fidPtr[uOrder] & (uint64_t(1) << uShift)) == 0 )
-                ++uShift;
-              if ( uShift == sizeof(uint64_t) * CHAR_BIT )
+              if ( ++uShift == sizeof(uint64_t) * CHAR_BIT )
                 {  ++uOrder;  uShift = 0;  }
+
+              while ( uOrder < 4 )
+              {
+                while ( uShift < sizeof(uint64_t) * CHAR_BIT && (fidPtr[uOrder] & (uint64_t(1) << uShift)) == 0 )
+                  ++uShift;
+                if ( uShift == sizeof(uint64_t) * CHAR_BIT )  {  ++uOrder;  uShift = 0;  }
+                  else break;
+              }
             }
             return *this;
           }
