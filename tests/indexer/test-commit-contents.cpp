@@ -44,6 +44,8 @@ class MockSeralized: public IStorage::ISerialized
   auto  Linkages() -> mtc::api<mtc::IFlatStream> override {  return nullptr;  }
   auto  Packages() -> mtc::api<IStorage::IDumpStore> override {  return nullptr;  }
 
+  auto  GetStats() -> mtc::zmap override {  return {};  }
+
   auto  Commit() -> mtc::api<ISerialized> override  {  return this;  }
   void  Remove() override {}
 
@@ -60,6 +62,9 @@ class MockEntity: public IEntity
   auto  GetExtra() const -> mtc::api<const mtc::IByteBuffer> override  {  return {};  }
   auto  GetBundle() const -> mtc::api<const mtc::IByteBuffer> override  {  return {};  }
   auto  GetVersion() const -> uint64_t override {  return 0; }
+# if defined( DEBUG_TOOLS )
+  virtual auto  GetBundlePos() const -> int64_t {  return -1;  }
+# endif   // DEBUG_TOOLS
 };
 
 class MockCommitable: public IContentsIndex

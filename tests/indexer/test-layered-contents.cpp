@@ -49,6 +49,9 @@ class MockDynamic final: public IContentsIndex
     auto  GetExtra() const -> mtc::api<const mtc::IByteBuffer> override  {  return nullptr;  }
     auto  GetBundle() const -> mtc::api<const mtc::IByteBuffer> override  {  return nullptr;  }
     auto  GetVersion() const -> uint64_t override  {  return 0;  }
+# if defined( DEBUG_TOOLS )
+    virtual auto  GetBundlePos() const -> int64_t {  return -1;  }
+# endif   // DEBUG_TOOLS
 
   public:
     MockEntity( const std::string& entId, uint32_t uindex ):
