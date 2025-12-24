@@ -238,7 +238,7 @@ template <class T>
         bool  forced = *ptrtop++ == '"';
 
         for ( --ptrend; ptrtop != ptrend; ++ptrtop )
-          subset.emplace_back( mtc::widestr( ptrtop->pwsstr, ptrend->length ) );
+          subset.emplace_back( mtc::widestr( ptrtop->pwsstr, ptrtop->length ) );
 
         return mtc::zmap{
           { forced ? "quote" : "order", std::move( subset ) } };
