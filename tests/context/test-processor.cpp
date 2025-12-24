@@ -13,9 +13,11 @@ class MockLang: public ILemmatizer
 {
   implement_lifetime_stub
 
-  int   Lemmatize( IWord* word, const widechar* pstr, size_t ncch ) override
+  int   Lemmatize( IWord* word, unsigned opt, const widechar* pstr, size_t ncch ) override
   {
     auto  stem = codepages::strtolower( pstr, ncch );
+
+    (void)opt;
 
     word->AddStem( stem.c_str(), ncch >= 3 ? 3 : 1, 1U, 1.0,
       std::initializer_list<uint8_t>{ 1, 2, 3 }.begin() , 3 );
@@ -136,7 +138,7 @@ TestItEasy::RegisterFunc  test_processor( []()
       }
       SECTION( "* language modules may be added" )
       {
-        REQUIRE_NOTHROW( txProc.Initialize( 0x7, &mockLg ) );
+        REQUIRE_NOTHROW( txProc.AddModule( 0x7, &mockLg ) );
 
         SECTION( "with language modules it implements all the lexemes" )
         {
