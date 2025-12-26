@@ -359,10 +359,10 @@ namespace queries {
     if ( abstract.entries.empty() )
     {
       size_t  nfound = 0;
-      size_t  nstart = 0;
       auto    entPtr = entryBuf.data();
       auto    posPtr = pointBuf.data();
-      auto    outPtr = entryOut.data();
+      auto    outBeg = entryOut.data();
+      auto    outPtr = outBeg;
 
     // request elements in found blocks
       for ( size_t i = 0; i != blockSet.size(); ++i )
@@ -386,18 +386,30 @@ namespace queries {
         return abstract = { Abstract::Rich, 0, selected.front() };
 
     // merge found tuples
-      for ( auto outend = entryOut.data() + entryOut.size(); outPtr != outend && nstart < nfound; ++outPtr )
-        if ( selected[nstart].pbeg < selected[nstart].pend )
+      for ( auto outEnd = outBeg + entryOut.size(); outPtr != outEnd; )
+      {
+        auto  selPtr = (const EntrySet*)nullptr;
+        auto  uLower = decltype(outPtr->limits.uMin){};
+
+        for ( size_t nstart = 0; nstart != nfound; ++nstart )
+          if ( selected[nstart].pbeg != selected[nstart].pend )
+          {
+            auto  curEnt = selected[nstart].pbeg;
+            auto  lLimit = curEnt->limits.uMin;
+
+            if ( selPtr == nullptr || lLimit < uLower || (lLimit == uLower && curEnt->weight > selPtr->weight) )
+              uLower = (selPtr = curEnt)->limits.uMin;
+          }
+
+        if ( selPtr != nullptr )
         {
-          auto  uLower = (*outPtr = *selected[nstart].pbeg).limits.uMin;
+          *outPtr++ = *selPtr;
 
-          if ( ++selected[nstart].pbeg == selected[nstart].pend )
-            ++nstart;
-
-          for ( auto norder = nstart + 1; norder < nfound; ++norder )
+          for ( auto norder = (size_t)0; norder < nfound; ++norder )
             if ( uLower == selected[norder].pbeg->limits.uMin )
               ++selected[norder].pbeg;
-        }
+        } else break;
+      }
       return abstract = { Abstract::Rich, 0, { entryOut.data(), outPtr } };
     }
     return getdoc == entityId ? abstract : abstract = {};
