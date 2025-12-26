@@ -19,11 +19,11 @@ namespace queries {
   {
     auto  srcPtr( source.data() );
     auto  srcEnd( source.data() + source.size() );
+    auto  uEntry = unsigned(0);
     auto  outPtr = output;
     auto  outEnd = outPtr + maxLen;
-    auto  uEntry = unsigned(0);
 
-    while ( srcPtr < srcEnd && outPtr != outEnd )
+    for ( ; srcPtr < srcEnd && outPtr != outEnd; ++uEntry )
     {
       uint8_t   formid = 0;
       unsigned  uOrder;
@@ -35,7 +35,7 @@ namespace queries {
         continue;
 
       *outPtr++ = { { uOrder, uOrder }, weight, double(uOrder), { appPtr, appPtr + 1 } };
-      *appPtr++ = { id, uEntry++ };
+      *appPtr++ = { id, uEntry };
     }
 
     return unsigned(outPtr - output);
@@ -46,14 +46,15 @@ namespace queries {
     Abstract::EntrySet (&output)[N],
     Abstract::EntryPos (&appear)[M], const std::string_view& source, const RankEntry& ranker, unsigned id ) -> unsigned
   {
-    auto  outPtr( output );
-    auto  outEnd( output + std::min( N, M ) );
-    auto  appPtr( appear );
     auto  srcPtr( source.data() );
     auto  srcEnd( source.data() + source.size() );
     auto  uEntry = unsigned(0);
+    auto  outPtr = output;
+    auto  outEnd = output + std::min( N, M );
+    auto  appPtr = appear;
+    auto  appEnd = appear + M;
 
-    while ( srcPtr < srcEnd && outPtr != outEnd )
+    for ( ; srcPtr < srcEnd && outPtr != outEnd && appPtr != appEnd; ++uEntry )
     {
       uint8_t   formid = 0;
       unsigned  uOrder;
@@ -64,8 +65,8 @@ namespace queries {
       if ( (weight = ranker( uEntry = (uOrder += uEntry), formid )) < 0 )
         continue;
 
-      *outPtr++ = { { uOrder, uOrder }, weight, double(uOrder), {  appear, appear + 1 } };
-      *appPtr++ = { id, uEntry++ };
+      *outPtr++ = { { uOrder, uOrder }, weight, double(uOrder), { appPtr, appPtr + 1 } };
+      *appPtr++ = { id, uEntry };
     }
 
     return unsigned(outPtr - output);
