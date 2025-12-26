@@ -172,7 +172,7 @@ namespace imaging {
           auto  wcs = buf.GetBuffer( cch + 1 );
 
           codepages::utf8::decode( wcs, cch + 1, str, len );
-          addstr( opt & 0x7, { wcs, len } );
+          addstr( opt & 0x7, { wcs, cch } );
           break;
         }
         case WordsEncoder::of_1251str:  default:  // 0
