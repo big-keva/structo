@@ -242,7 +242,7 @@ namespace static_ {
       uint32_t  blockType;
       uint32_t  nEntities;
       uint64_t  blockOffs;
-      uint32_t  blockSize;
+      uint64_t  blockSize;
 
       if ( ::FetchFrom( ::FetchFrom( ::FetchFrom( ::FetchFrom( pfound,
         blockType ),

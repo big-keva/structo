@@ -63,7 +63,7 @@ namespace fusion {
     uint32_t  bkType;
     uint32_t  uCount;
     uint64_t  offset;
-    uint32_t  length;
+    uint64_t  length;
 
   public:
     auto  GetBufLen() const
@@ -83,7 +83,7 @@ namespace fusion {
   auto  MergeSimple(
     mtc::api<mtc::IByteStream>      output,
     std::vector<EntityReference>&   buffer,
-    const std::vector<MapEntities>& blocks ) -> std::pair<uint32_t, uint32_t>
+    const std::vector<MapEntities>& blocks ) -> std::pair<uint32_t, uint64_t>
   {
     uint64_t  length = 0;
     uint32_t  uOldId = 0;
@@ -115,20 +115,19 @@ namespace fusion {
       if ( ::Serialize( output.ptr(), diffId ) == nullptr )
         throw std::runtime_error( "Failed to serialize entities" );
 
-      if ( (length += ::GetBufLen( diffId )) >= uint32_t(-1) )
-        throw std::logic_error( "index block too long @" __FILE__ ":" LINE_STRING );
+      length += ::GetBufLen( diffId );
       uOldId = reference.uEntity;
     }
 
-    return { uint32_t(buffer.size()), uint32_t(length) };
+    return { uint32_t(buffer.size()), length };
   }
 
   auto  MergeChains(
     mtc::api<mtc::IByteStream>      output,
     std::vector<EntityReference>&   buffer,
-    const std::vector<MapEntities>& blocks ) -> std::pair<uint32_t, uint32_t>
+    const std::vector<MapEntities>& blocks ) -> std::pair<uint32_t, uint64_t>
   {
-    uint32_t  length = 0;
+    uint64_t  length = 0;
     uint32_t  uOldId = 0;
 
     for ( auto& block: blocks )
@@ -163,7 +162,7 @@ namespace fusion {
         throw std::runtime_error( "Failed to serialize entities" );
       }
 
-      length += uint32_t(::GetBufLen( diffId ) + ::GetBufLen( nbytes ) + nbytes);
+      length += ::GetBufLen( diffId ) + ::GetBufLen( nbytes ) + nbytes;
       uOldId = reference.uEntity;
     }
 
@@ -285,7 +284,7 @@ namespace fusion {
       if ( nCount != 0 )
       {
         auto  blockList = std::vector<MapEntities>( nCount );
-        auto  mergeStat = std::pair<uint32_t, uint32_t>{};
+        auto  mergeStat = std::pair<uint32_t, uint64_t>{};
 
         for ( size_t i = 0; i != nCount; ++i )
           blockList[i] = { indices[selectSet[i]]->GetKeyBlock( *select ), &remapId[selectSet[i]] };
