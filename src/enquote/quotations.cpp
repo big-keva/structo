@@ -69,7 +69,7 @@ namespace enquote {
      */
     auto  getBounds(
       Limits&             output,
-      const Span&         bounds,
+      Span                bounds,
       const FieldOptions& fdinfo,
       const MarkupTag*    format,
       const EntrySet*     quoptr ) const -> std::pair<const MarkupTag*, const EntrySet*>;
@@ -120,7 +120,7 @@ namespace enquote {
     auto  limbeg = (const Span*)limits.data();
     auto  quobeg = quotes.begin();
 
-    return (void)getQuotes( output, fmtbeg, markup.end(), limbeg, limits.data() + limits.size(), quobeg );
+    return getQuotes( output, fmtbeg, markup.end(), limbeg, limits.data() + limits.size(), quobeg );
   }
 
   void  QuoteMachine::quoter_function::GetSource( IText* output ) const
@@ -170,7 +170,7 @@ namespace enquote {
 
     if ( !quotes.empty() )
     {
-      getBounds( limits, { 0U, unsigned(xwords.size() - 1) }, *loadField( "" ),
+      getBounds( limits, { 0U, (unsigned)xwords.size() }, *loadField( "" ),
         markup.begin(), quotes.begin() );
     }
       else
@@ -184,41 +184,42 @@ namespace enquote {
 
   auto  QuoteMachine::quoter_function::getBounds(
     Limits&             output,
-    const Span&         bounds,
+    Span                bounds,
     const FieldOptions& fdinfo,
     const MarkupTag*    format,
     const EntrySet*     quoptr ) const -> std::pair<const MarkupTag*, const EntrySet*>
   {
-    if ( (fdinfo.options & (FieldOptions::ofEnforceQuote | FieldOptions::ofDisableQuote)) != 0 )
+  // пока форматы укладываются в пределы цитирования, строить цитаты
+    while ( bounds.uLower < bounds.uUpper )
     {
-      if ( (fdinfo.options & FieldOptions::ofEnforceQuote) != 0 )
-        output.push_back( bounds );
+      auto  uBound = format != markup.end() && format->uLower >= bounds.uLower ?
+        std::min( format->uLower, bounds.uUpper ) : bounds.uUpper;
 
-      while ( format != markup.end() && format->uUpper <= bounds.uUpper )
-        ++format;
-      while ( quoptr != quotes.end() && quoptr->limits.uMax <= bounds.uUpper )
-        ++quoptr;
-
-      return { format, quoptr };
-    }
-
-  // цикл пока есть форматы или цитаты в заданных пределах
-    while ( (format != markup.end() && format->uUpper <= bounds.uUpper)
-         || (quoptr != quotes.end() && quoptr->limits.uMin <= bounds.uUpper) )
-    {
-    // построить цитаты в текущих границах до следующего формата
-      while ( quoptr != quotes.end() && quoptr->limits.uMin < getFormat( format ).uLower )
+      // для безусловно цитируемых зацитировать или пропустить возможный интервал
+    // собственно bounds до очередного вложенного формата
+      if ( (fdinfo.options & (FieldOptions::ofEnforceQuote | FieldOptions::ofDisableQuote)) != 0 )
       {
-        addQuotes( output, { bounds.uLower, std::min( bounds.uUpper, getFormat( format ).uLower - 1 ) },
+        if ( (fdinfo.options & FieldOptions::ofEnforceQuote) != 0 && uBound > bounds.uLower )
+          output.push_back( { bounds.uLower, uBound } );
+
+        while ( quoptr != quotes.end() && quoptr->limits.uMax < bounds.uLower )
+          ++quoptr;
+      }
+        else
+      if ( quoptr != quotes.end() && quoptr->limits.uMin < uBound )
+      {
+        addQuotes( output, { bounds.uLower, uBound - 1  },
           fdinfo, *quoptr );
-        if ( quoptr->limits.uMax < getFormat( format ).uLower )
+        if ( quoptr->limits.uMax < uBound )
           ++quoptr;
       }
 
-    // прокрутить вложенные форматы до следующей цитаты
-      while ( format != markup.end() && format->uUpper <= bounds.uUpper )
+      bounds.uLower = uBound;
+
+    // если есть формат в пределах bounds, вызвать для него рекурсивно
+      if ( format != markup.end() && format->uLower < bounds.uUpper )
       {
-        std::tie( format, quoptr ) = getBounds( output, { format->uLower, format->uUpper },
+        std::tie( format, quoptr ) = getBounds( output, { bounds.uLower, std::min( bounds.uUpper, format->uUpper + 1 ) },
           *loadField( format->tagKey ), format + 1, quoptr );
       }
     }
