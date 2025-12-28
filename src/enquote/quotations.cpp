@@ -1,4 +1,7 @@
 # include "../../enquote/quotations.hpp"
+
+#include <moonycode/chartype.h>
+
 # include "../../context/pack-images.hpp"
 # include "../../context/pack-format.hpp"
 # include "../../context/text-image.hpp"
@@ -69,7 +72,8 @@ namespace enquote {
      */
     auto  getBounds(
       Limits&             output,
-      Span                bounds,
+      unsigned&           lBound,
+      unsigned            uBound,
       const FieldOptions& fdinfo,
       const MarkupTag*    format,
       const EntrySet*     quoptr ) const -> std::pair<const MarkupTag*, const EntrySet*>;
@@ -103,6 +107,11 @@ namespace enquote {
 
   // QuoteMachine::quoter_function
 
+  inline  bool  IsBreakingPunct( const context::TextToken& w )
+  {
+    return w.IsPointing() && strchr( ".!?:;,", *w.pwsstr ) != nullptr;
+  }
+
   QuoteMachine::quoter_function::quoter_function(
     const std::shared_ptr<common_settings>& coset,
     const mtc::span<const TextToken>&       words,
@@ -134,6 +143,11 @@ namespace enquote {
     const FieldOptions& fdinfo,
     const EntrySet&     entset ) const
   {
+    if ( entset.spread.size() > 1 && entset.spread.pbeg->offset > entset.spread.pend[-1].offset )
+    {
+      std::sort( (EntryPos*)entset.spread.pbeg, (EntryPos*)entset.spread.pend, []( const EntryPos& l, const EntryPos& r )
+        {  return l.offset < r.offset;  } );
+    }
     for ( auto& pos: entset.spread )
       if ( bounds.uLower <= pos.offset && bounds.uUpper >= pos.offset )
       {
@@ -146,13 +160,15 @@ namespace enquote {
         bool  bpoint;
 
         // move quote limits left and right, markup the dots
-        for ( bpoint = false; aQuote.uLower > aWalls.uLower && !(bpoint = xwords[aQuote.uLower - 1].IsPointing()); )
+        while ( aQuote.uLower < pos.offset && IsBreakingPunct( xwords[aQuote.uLower] ) )
+          ++aQuote.uLower;
+        for ( bpoint = false; aQuote.uLower > aWalls.uLower && !(bpoint = IsBreakingPunct(xwords[aQuote.uLower - 1])); )
           --aQuote.uLower;
         if ( !bpoint && aQuote.uLower > bounds.uLower )
           aQuote.points |= Span::loDots;
 
         for ( bpoint = false; aQuote.uUpper < aWalls.uUpper && !bpoint; )
-          bpoint = xwords[++aQuote.uUpper].IsPointing();
+          bpoint = IsBreakingPunct( xwords[++aQuote.uUpper] );
         if ( !bpoint && aQuote.uUpper < bounds.uUpper )
           aQuote.points |= Span::upDots;
 
@@ -170,7 +186,10 @@ namespace enquote {
 
     if ( !quotes.empty() )
     {
-      getBounds( limits, { 0U, (unsigned)xwords.size() }, *loadField( "" ),
+      unsigned  lBound = 0;
+      unsigned  uBound = xwords.size();
+
+      getBounds( limits, lBound, uBound, *loadField( "" ),
         markup.begin(), quotes.begin() );
     }
       else
@@ -184,42 +203,43 @@ namespace enquote {
 
   auto  QuoteMachine::quoter_function::getBounds(
     Limits&             output,
-    Span                bounds,
+    unsigned&           lBound,
+    unsigned            hBound,
     const FieldOptions& fdinfo,
     const MarkupTag*    format,
     const EntrySet*     quoptr ) const -> std::pair<const MarkupTag*, const EntrySet*>
   {
   // пока форматы укладываются в пределы цитирования, строить цитаты
-    while ( bounds.uLower < bounds.uUpper )
+    while ( lBound < hBound )
     {
-      auto  uBound = format != markup.end() && format->uLower >= bounds.uLower ?
-        std::min( format->uLower, bounds.uUpper ) : bounds.uUpper;
+      auto  uBound = format != markup.end() && format->uLower >= lBound ?
+        std::min( format->uLower, hBound ) : hBound;
 
       // для безусловно цитируемых зацитировать или пропустить возможный интервал
     // собственно bounds до очередного вложенного формата
       if ( (fdinfo.options & (FieldOptions::ofEnforceQuote | FieldOptions::ofDisableQuote)) != 0 )
       {
-        if ( (fdinfo.options & FieldOptions::ofEnforceQuote) != 0 && uBound > bounds.uLower )
-          output.push_back( { bounds.uLower, uBound } );
+        if ( (fdinfo.options & FieldOptions::ofEnforceQuote) != 0 && uBound > lBound )
+          output.push_back( { lBound, uBound } );
 
-        while ( quoptr != quotes.end() && quoptr->limits.uMax < bounds.uLower )
+        while ( quoptr != quotes.end() && quoptr->limits.uMax < lBound )
           ++quoptr;
       }
         else
       if ( quoptr != quotes.end() && quoptr->limits.uMin < uBound )
       {
-        addQuotes( output, { bounds.uLower, uBound - 1  },
+        addQuotes( output, { lBound, uBound - 1  },
           fdinfo, *quoptr );
         if ( quoptr->limits.uMax < uBound )
           ++quoptr;
       }
 
-      bounds.uLower = uBound;
+      lBound = uBound;
 
     // если есть формат в пределах bounds, вызвать для него рекурсивно
-      if ( format != markup.end() && format->uLower < bounds.uUpper )
+      if ( format != markup.end() && format->uLower < hBound )
       {
-        std::tie( format, quoptr ) = getBounds( output, { bounds.uLower, std::min( bounds.uUpper, format->uUpper + 1 ) },
+        std::tie( format, quoptr ) = getBounds( output, lBound, std::min( hBound, format->uUpper + 1 ),
           *loadField( format->tagKey ), format + 1, quoptr );
       }
     }
