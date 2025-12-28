@@ -15,24 +15,26 @@ namespace structo {
 namespace context {
 namespace imaging {
 
-  class UtfStrBuffer: protected std::vector<widechar>
+  template <class CharType>
+  class TextBuffer: protected std::vector<CharType>
   {
-    widechar  buffer[0x100];
+    CharType  buffer[0x100];
 
   public:
-    auto  GetBuffer( size_t len ) -> widechar*
+    auto  GetBuffer( size_t len ) -> CharType*
     {
       if ( len <= std::size(buffer) )
         return buffer;
-      if ( len > size() )
-        resize( len );
-      return data();
+      if ( len > this->size() )
+        this->resize( len );
+      return this->data();
     }
   };
 
   class WordsEncoder final
   {
     mtc::arbitrarymap<unsigned> references;
+    TextBuffer<char>            textBuffer;
 
   public:
     enum: unsigned
@@ -72,15 +74,11 @@ namespace imaging {
       }
         else
       {
-        o = ::Serialize( o, AsUtf8( t ) );
+        auto  climit = t.length * 8;
+        auto  encode = textBuffer.GetBuffer( climit );
+        auto  cchenc = codepages::utf8::encode( encode, climit, t.pwsstr, t.length );
 
-        for ( auto p = t.pwsstr, e = p + t.length; p != e; ++p )
-        {
-          char  encode[8];
-          auto  cchenc = codepages::__impl__::utf::encodechar( encode, sizeof(encode), *p );
-
-          o = ::Serialize( o, encode, cchenc );
-        }
+        o = ::Serialize( ::Serialize( o, AsUtf8( t, cchenc ) ), encode, cchenc );
       }
       references.Insert( t.pwsstr, t.length * sizeof(widechar), p );
       return o;
@@ -96,8 +94,8 @@ namespace imaging {
       }
     static  auto  As1251( const TextToken& t ) -> unsigned
       {  return unsigned(t.uFlags + ((t.length - 1) << 5));  }
-    static  auto  AsUtf8( const TextToken& t ) -> unsigned
-      {  return unsigned(t.uFlags + ((codepages::utf8::cbchar( t.pwsstr, t.length ) - 1) << 5) + of_utf8str);  }
+    static  auto  AsUtf8( const TextToken& t, size_t nbytes ) -> unsigned
+      {  return unsigned(t.uFlags + ((nbytes - 1) << 5) + of_utf8str);  }
     static  auto  AsDiff( const TextToken& t, unsigned diff ) -> unsigned
       {  return unsigned(t.uFlags + ((diff - 1) << 5) + of_diffref);  }
     static  auto  AsOffs( const TextToken& t, unsigned next ) -> unsigned
@@ -139,7 +137,7 @@ namespace imaging {
   {
     auto  src = mtc::sourcebuf( packed.data(), packed.size() );
     auto  inp = src.ptr();
-    auto  buf = UtfStrBuffer();
+    auto  buf = TextBuffer<widechar>();
     int   ncw;
 
     if ( (inp = ::FetchFrom( inp, ncw )) == nullptr )
@@ -164,12 +162,11 @@ namespace imaging {
         {
           auto  len = 1 + (opt >> 5);
           auto  str = inp->getptr();
+          auto  cch = codepages::utf8::strlen( str, len );
+          auto  wcs = buf.GetBuffer( cch + 1 );
 
           if ( (inp = ::SkipBytes( inp, len )) == nullptr )
             throw std::invalid_argument( "broken text image" );
-
-          auto  cch = codepages::utf8::strlen( str, len );
-          auto  wcs = buf.GetBuffer( cch + 1 );
 
           codepages::utf8::decode( wcs, cch + 1, str, len );
           addstr( opt & 0x7, { wcs, cch } );
