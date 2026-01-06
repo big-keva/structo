@@ -54,7 +54,6 @@ namespace fusion  {
     auto  Commit() -> mtc::api<IStorage::ISerialized> override;
     auto  Reduce() -> mtc::api<IContentsIndex> override;
     void  Remove() override;
-    void  Stash( EntityId ) override  {}
 
   protected:
     void  MergerThreadFunc();
