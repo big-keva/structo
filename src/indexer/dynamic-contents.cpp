@@ -51,8 +51,6 @@ namespace dynamic {
     auto  Reduce() -> mtc::api<IContentsIndex> override  {  return this;  }
     void  Remove() override;
 
-    void  Stash( EntityId ) override  {  throw std::logic_error( "not implemented @" __FILE__ ":" LINE_STRING );  }
-
   protected:
     const uint32_t                  memLimit;
     mtc::Arena                      memArena;
@@ -271,7 +269,6 @@ namespace dynamic {
     contents.StopIt().Remove( shadowed );
 
 //    contents.VerifyIds( GetMaxIndex() );
-
   // store entities table
     entities.Serialize( pStorage->Entities().ptr() );
     linkagesSize =
