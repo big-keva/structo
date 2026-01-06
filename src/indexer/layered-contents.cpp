@@ -51,8 +51,6 @@ namespace layered {
     auto  Reduce() -> mtc::api<IContentsIndex> override {  return this;  }
     void  Remove() override;
 
-    void  Stash( EntityId ) override  {}
-
   protected:
     using LayersIt = decltype(layers)::iterator;
     using EventRec = std::pair<void*, Notify::Event>;
