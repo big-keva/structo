@@ -68,7 +68,7 @@ namespace dynamic {
       auto  SetId( const EntityId& ) -> Entity&;
       auto  SetIndex( uint32_t ) -> Entity&;
       auto  SetOwner( Iface* ) -> Entity&;
-      auto  SetStore( IStorage::IDumpStore* ) -> Entity&;
+      auto  SetStore( IStorage::IBundleRepo* ) -> Entity&;
       auto  SetExtra( const std::string_view& ) -> Entity&;
       auto  SetPackPos( int64_t ) -> Entity&;
       auto  SetVersion( uint64_t ) -> Entity&;
@@ -87,13 +87,13 @@ namespace dynamic {
       uint64_t              version;
 
       mtc::Iface*           ownerPtr = nullptr;
-      IStorage::IDumpStore* docStore = nullptr;
+      IStorage::IBundleRepo* docStore = nullptr;
       std::atomic<Entity*>  collision = nullptr;  // relocation in the hash table
 
     };
 
   public:
-    EntityTable( uint32_t size_limit, mtc::Iface* owner, IStorage::IDumpStore* store, Allocator alloc = Allocator() );
+    EntityTable( uint32_t size_limit, mtc::Iface* owner, IStorage::IBundleRepo* store, Allocator alloc = Allocator() );
    ~EntityTable();
 
     auto  GetMaxEntities() const -> uint32_t  {  return uint32_t(entStore.size());  }
@@ -169,7 +169,7 @@ namespace dynamic {
     StrHashTable   entTable;
 
     mtc::Iface*           ptrOwner = nullptr;
-    IStorage::IDumpStore* docStore = nullptr;
+    IStorage::IBundleRepo* docStore = nullptr;
 
   };
 
@@ -220,7 +220,7 @@ namespace dynamic {
     {  return ownerPtr = po, *this;  }
 
   template <class Allocator>
-  auto  EntityTable<Allocator>::Entity::SetStore( IStorage::IDumpStore* ps ) -> Entity&
+  auto  EntityTable<Allocator>::Entity::SetStore( IStorage::IBundleRepo* ps ) -> Entity&
     {  return docStore = ps, *this;  }
 
   template <class Allocator>
@@ -249,7 +249,7 @@ namespace dynamic {
   // EntityTable implementation
 
   template <class Allocator>
-  EntityTable<Allocator>::EntityTable( uint32_t size_limit, mtc::Iface* owner, IStorage::IDumpStore* store, Allocator alloc ):
+  EntityTable<Allocator>::EntityTable( uint32_t size_limit, mtc::Iface* owner, IStorage::IBundleRepo* store, Allocator alloc ):
     entStore( size_limit, alloc ),
     ptrStore( &getEntity( 1 ) ),
     entTable( UpperPrime( size_limit ), alloc ),

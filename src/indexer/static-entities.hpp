@@ -48,7 +48,7 @@ namespace static_ {
       using string = std::basic_string<char, std::char_traits<char>, Allocator>;
 
     public:
-      Entity( mtc::Iface* owner, IStorage::IDumpStore* dumps ):
+      Entity( mtc::Iface* owner, IStorage::IBundleRepo* dumps ):
         owner_ptr( owner ),
         dumpStore( dumps ){}
 
@@ -84,7 +84,7 @@ namespace static_ {
     public:
       Iface*                owner_ptr = nullptr;
       Entity*               collision = nullptr;
-      IStorage::IDumpStore* dumpStore = nullptr;
+      IStorage::IBundleRepo* dumpStore = nullptr;
 
       std::string_view      entity_id;
       std::string_view      extras;
@@ -101,7 +101,7 @@ namespace static_ {
     using hash_vector = std::vector<Entity*, AllocatorCast<Allocator, Entity*>>;
 
   public:
-    EntityTable( const std::string_view&, mtc::Iface*, IStorage::IDumpStore*, Allocator = Allocator() );
+    EntityTable( const std::string_view&, mtc::Iface*, IStorage::IBundleRepo*, Allocator = Allocator() );
    ~EntityTable();
 
     auto  GetEntityCount() const -> uint32_t {  return std::max( 1U, uint32_t( entityTable.size() ) ) - 1;  };
@@ -181,7 +181,7 @@ namespace static_ {
   // EntityTable implementation
 
   template <class Allocator>
-  EntityTable<Allocator>::EntityTable( const std::string_view& input, mtc::Iface* owner, IStorage::IDumpStore* dumps, Allocator alloc ):
+  EntityTable<Allocator>::EntityTable( const std::string_view& input, mtc::Iface* owner, IStorage::IBundleRepo* dumps, Allocator alloc ):
     contentsPtr( owner ),
     entityTable( alloc ),
     entitiesMap( alloc )
