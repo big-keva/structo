@@ -12,6 +12,10 @@ namespace fusion {
   using IRecordIterator = IContentsIndex::IContentsList;
   using EntityReference = IContentsIndex::IEntities::Reference;
 
+  constexpr size_t  sector_len = 1 * 0x400 * 0x400;   // 1M
+  constexpr size_t  safety_gap = 1 * 0x400 * 0x400;   // 1M
+  constexpr size_t  max_docids = 0x200;
+
   class EntityIterator
   {
     mtc::api<IEntityIterator> iterator;
@@ -125,10 +129,44 @@ namespace fusion {
   auto  MergeChains(
     mtc::api<mtc::IByteStream>      output,
     std::vector<EntityReference>&   buffer,
-    const std::vector<MapEntities>& blocks ) -> std::pair<uint32_t, uint64_t>
+    const std::vector<MapEntities>& blocks,
+    std::vector<char>&              sector ) -> std::pair<uint32_t, uint64_t>
   {
     uint64_t  length = 0;
     uint32_t  uOldId = 0;
+    auto      secptr = sector.data();
+    auto      gapptr = sector.data() + sector.size() - safety_gap;
+    auto      uOrgId = uint32_t(0);
+    auto      nitems = size_t(0);
+    auto      fFlush = [&]( bool withJump )
+      {
+        if ( withJump )
+        {
+          auto  dif_id = uOldId - uOrgId - 1;
+          auto  dif_cb = secptr - sector.data();
+
+          if ( ::Serialize(
+               ::Serialize(
+               ::Serialize(
+               ::Serialize( output.ptr(), 0 ), 0 ), dif_id ), dif_cb ) == nullptr )
+          {
+            throw std::runtime_error( "Failed to serialize entities" );
+          }
+
+          length += ::GetBufLen( 0 ) + ::GetBufLen( 0 )
+            + ::GetBufLen( dif_id ) + ::GetBufLen( dif_cb );
+        }
+
+        if ( ::Serialize( output.ptr(), sector.data(), secptr - sector.data() ) == nullptr )
+        {
+          throw std::runtime_error( "Failed to serialize entities" );
+        }
+
+        length += secptr - sector.data();
+          secptr = sector.data();
+        uOrgId = uOldId;
+          nitems = 0;
+      };
 
     for ( auto& block: blocks )
     {
@@ -155,16 +193,23 @@ namespace fusion {
       auto  diffId = reference.uEntity - uOldId - 1;
       auto  nbytes = reference.details.size();
 
-      if ( ::Serialize( ::Serialize( ::Serialize( output.ptr(),
+      if ( secptr > gapptr || nitems++ > max_docids )
+        fFlush( true );
+
+      secptr = ::Serialize( ::Serialize( ::Serialize( secptr,
         diffId ),
-        nbytes ), reference.details.data(), nbytes )  == nullptr )
+        nbytes ),
+        reference.details.data(), nbytes );
+
+      if ( secptr == nullptr )
       {
         throw std::runtime_error( "Failed to serialize entities" );
       }
 
-      length += ::GetBufLen( diffId ) + ::GetBufLen( nbytes ) + nbytes;
       uOldId = reference.uEntity;
     }
+
+    fFlush( false );
 
     return { uint32_t(buffer.size()), length };
   }
@@ -253,6 +298,7 @@ namespace fusion {
     auto  iterators = std::vector<LexemeIterator>();
     auto  selectSet = std::vector<size_t>( indices.size() );
     auto  refVector = std::vector<EntityReference>( 0x100000 );
+    auto  docSector = std::vector<char>( sector_len + safety_gap );
     auto  radixTree = mtc::radix::tree<RadixLink>();
     auto  keyRecord = RadixLink{ 0, 0, 0, 0 };
 
@@ -293,7 +339,7 @@ namespace fusion {
 
         mergeStat = blockList.front().entityBlock->Type() == 0 ?
           MergeSimple( chains, refVector, blockList ) :
-          MergeChains( chains, refVector, blockList );
+          MergeChains( chains, refVector, blockList, docSector );
 
         if ( mergeStat.second != 0 )
         {
