@@ -83,8 +83,6 @@ public:
   auto  Reduce() -> mtc::api<IContentsIndex> override
     {  return this;  }
   void  Remove() override NOT_IMPLEMENTED
-  void  Stash( EntityId ) override
-    {}
 
 };
 

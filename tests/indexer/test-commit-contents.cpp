@@ -42,7 +42,7 @@ class MockSeralized: public IStorage::ISerialized
   auto  Entities() -> mtc::api<const mtc::IByteBuffer> override {  return &buffer;  }
   auto  Contents() -> mtc::api<const mtc::IByteBuffer> override {  return &buffer;  }
   auto  Linkages() -> mtc::api<mtc::IFlatStream> override {  return nullptr;  }
-  auto  Packages() -> mtc::api<IStorage::IDumpStore> override {  return nullptr;  }
+  auto  Packages() -> mtc::api<IStorage::IBundleRepo> override {  return nullptr;  }
 
   auto  GetStats() -> mtc::zmap override {  return {};  }
 
@@ -112,8 +112,6 @@ public:
     {  throw std::logic_error( "invalid call" );  }
   void  Remove() override
     {  throw std::logic_error( "invalid call" );  }
-  void  Stash( EntityId ) override
-    {}
 
 };
 

@@ -168,51 +168,6 @@ TestItEasy::RegisterFunc  static_contents( []()
             if ( REQUIRE_NOTHROW( contents->GetKeyStats( "fff" ) ) )
               REQUIRE( contents->GetKeyStats( "fff" ).nCount == 0 );
           }
-          SECTION( "entity may be stashed" )
-          {
-            REQUIRE_NOTHROW( contents->Stash( "aaa" ) );
-
-            SECTION( "stashed entities are invisible" )
-            {
-
-              SECTION( "for GetEntity()" )
-              {
-                if ( REQUIRE_NOTHROW( entity = contents->GetEntity( "aaa" ) ) )
-                  REQUIRE( entity == nullptr );
-                if ( REQUIRE_NOTHROW( entity = contents->GetEntity( 1U ) ) )
-                  REQUIRE( entity == nullptr );
-              }
-              SECTION( "for iterators" )
-              {
-                auto  it = mtc::api<IContentsIndex::IEntitiesList>();
-
-                SECTION( "* by id" )
-                {
-                  if ( REQUIRE_NOTHROW( it = contents->ListEntities( "aaa" ) ) && REQUIRE( it != nullptr ) )
-                    if ( REQUIRE_NOTHROW( entity = it->Curr() ) && REQUIRE( entity != nullptr ) )
-                      REQUIRE( entity->GetId() == "ccc" );
-                }
-                SECTION( "* by index" )
-                {
-                  auto  it = mtc::api<IContentsIndex::IEntitiesList>();
-
-                  if ( REQUIRE_NOTHROW( it = contents->ListEntities( 0U ) ) && REQUIRE( it != nullptr ) )
-                    if ( REQUIRE_NOTHROW( entity = it->Curr() ) && REQUIRE( entity != nullptr ) )
-                      REQUIRE( entity->GetIndex() == 3 );
-                }
-              }
-              SECTION( "for key blocks" )
-              {
-                IContentsIndex::IEntities::Reference entRef;
-
-                REQUIRE_NOTHROW( entities = contents->GetKeyBlock( "ccc" ) );
-                REQUIRE( entities != nullptr );
-
-                if ( REQUIRE_NOTHROW( entRef = entities->Find( 1 ) ) )
-                  REQUIRE( entRef.uEntity == 3 );
-              }
-            }
-          }
           SECTION( "entities extras may be changed" )
           {
             auto  extras = mtc::api<const mtc::IByteBuffer>();
