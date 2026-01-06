@@ -5,14 +5,8 @@
 namespace structo {
 namespace queries {
 
-  struct ZeroForm
-    {  const char* operator()( const char* src, uint8_t& fid ) const {  return fid = 0xff, src;  }  };
-
-  struct LoadForm
-    {  const char* operator()( const char* src, uint8_t& fid ) const {  return ::FetchFrom( src, fid );  }  };
-
-  template <class GetFormId, class RankEntry>
-  auto  UnpackEntries(
+  template <class RankEntry>
+  auto  UnpackWordPos(
     Abstract::EntrySet* output,
     Abstract::EntryPos* appPtr,
     size_t              maxLen, const std::string_view& source, const RankEntry& ranker, unsigned id ) -> unsigned
@@ -25,51 +19,94 @@ namespace queries {
 
     for ( ; srcPtr < srcEnd && outPtr != outEnd; ++uEntry )
     {
-      uint8_t   formid = 0;
       unsigned  uOrder;
       double    weight;
 
-      srcPtr = GetFormId()( ::FetchFrom( srcPtr, uOrder ), formid );
+      srcPtr = ::FetchFrom( srcPtr, uOrder );
 
-      if ( (weight = ranker( uEntry = (uOrder += uEntry), formid )) < 0 )
+      if ( (weight = ranker( uEntry = (uOrder += uEntry), 0xff )) < 0 )
         continue;
 
-      *outPtr++ = { { uOrder, uOrder }, weight, double(uOrder), { appPtr, appPtr + 1 } };
+      *outPtr++ = { { uOrder, uOrder }, weight, { appPtr, appPtr + 1 } };
       *appPtr++ = { id, uEntry };
     }
 
     return unsigned(outPtr - output);
   }
 
-  template <class GetFormId, size_t N, size_t M, class RankEntry>
-  auto  UnpackEntries(
-    Abstract::EntrySet (&output)[N],
-    Abstract::EntryPos (&appear)[M], const std::string_view& source, const RankEntry& ranker, unsigned id ) -> unsigned
+  template <class RankEntry>
+  auto  UnpackWordFid(
+    Abstract::EntrySet* output,
+    Abstract::EntryPos* appPtr,
+    size_t              maxLen, const std::string_view& source, const RankEntry& ranker, unsigned id ) -> unsigned
   {
-    auto  srcPtr( source.data() );
-    auto  srcEnd( source.data() + source.size() );
-    auto  uEntry = unsigned(0);
-    auto  outPtr = output;
-    auto  outEnd = output + std::min( N, M );
-    auto  appPtr = appear;
-    auto  appEnd = appear + M;
+    auto    srcPtr( source.data() );
+    auto    srcEnd( source.data() + source.size() );
+    auto    uEntry = unsigned(0);
+    auto    outPtr = output;
+    auto    outEnd = outPtr + maxLen;
+    uint8_t getFid;
+    double  weight;
 
-    for ( ; srcPtr < srcEnd && outPtr != outEnd && appPtr != appEnd; ++uEntry )
+    if ( (*srcPtr & 0x01) != 0 )
     {
-      uint8_t   formid = 0;
-      unsigned  uOrder;
-      double    weight;
+      unsigned ctlFid;
 
-      srcPtr = GetFormId()( ::FetchFrom( srcPtr, uOrder ), formid );
+      srcPtr = ::FetchFrom( ::FetchFrom( srcPtr, ctlFid ), uEntry );
 
-      if ( (weight = ranker( uEntry = (uOrder += uEntry), formid )) < 0 )
-        continue;
+      for ( getFid = ctlFid >> 2; outPtr != outEnd; ++uEntry )
+      {
+        if ( (weight = ranker( uEntry, getFid )) > 0 )
+        {
+          *outPtr++ = { { uEntry, uEntry }, weight, { appPtr, appPtr + 1 } };
+          *appPtr++ = { id, uEntry };
+        }
 
-      *outPtr++ = { { uOrder, uOrder }, weight, double(uOrder), { appPtr, appPtr + 1 } };
-      *appPtr++ = { id, uEntry };
+        if ( srcPtr != srcEnd )
+        {
+          srcPtr = ::FetchFrom( srcPtr, ctlFid );
+          uEntry += ctlFid;
+        } else break;
+      }
+    }
+      else
+    {
+      srcPtr = ::FetchFrom( ::FetchFrom( srcPtr, uEntry ), getFid );
+
+      for ( uEntry >>= 2; outPtr != outEnd; ++uEntry )
+      {
+        unsigned  uOrder;
+
+        if ( (weight = ranker( uEntry, getFid )) > 0 )
+        {
+          *outPtr++ = { { uEntry, uEntry }, weight, { appPtr, appPtr + 1 } };
+          *appPtr++ = { id, uEntry };
+        }
+        if ( srcPtr != srcEnd )
+        {
+          srcPtr = ::FetchFrom( ::FetchFrom( srcPtr, uOrder ), getFid );
+          uEntry += uOrder;
+        } else break;
+      }
     }
 
     return unsigned(outPtr - output);
+  }
+
+  template <size_t N, size_t M, class RankEntry>
+  auto  UnpackWordPos(
+    Abstract::EntrySet (&output)[N],
+    Abstract::EntryPos (&appear)[M], const std::string_view& source, const RankEntry& ranker, unsigned id ) -> unsigned
+  {
+    return UnpackWordPos( output, appear, N, source, ranker, id );
+  }
+
+  template <size_t N, size_t M, class RankEntry>
+  auto  UnpackWordFid(
+    Abstract::EntrySet (&output)[N],
+    Abstract::EntryPos (&appear)[M], const std::string_view& source, const RankEntry& ranker, unsigned id ) -> unsigned
+  {
+    return UnpackWordFid( output, appear, N, source, ranker, id );
   }
 
 }}

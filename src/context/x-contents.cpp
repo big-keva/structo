@@ -142,6 +142,90 @@ namespace context {
 
   };
 
+  template <unsigned typeId, class Alloc>
+  class WordsForms: public Contents::Entries, protected std::vector<RichEntry, AllocatorCast<Alloc, RichEntry>>
+  {
+  public:
+    enum: unsigned {  objectType = typeId  };
+
+    using entry_type = RichEntry;
+
+  public:
+    WordsForms( Alloc alloc ): std::vector<RichEntry, AllocatorCast<Alloc, RichEntry>>( alloc ) {}
+
+    void  AddRecord( const entry_type& entry )
+    {
+      this->push_back( entry );
+    }
+    auto  BlockType() const -> unsigned override
+    {
+      return objectType;
+    }
+    auto  GetBufLen() const -> size_t override
+    {
+      auto  ptrbeg = this->begin();
+      auto  idform = (ptrbeg++)->fid;
+      auto  length = size_t(0);
+
+    // check if all the entries have same form
+      while ( ptrbeg != this->end() && ptrbeg->fid == idform )
+        ++ptrbeg;
+
+      if ( ptrbeg == this->end() )
+      {
+        auto  lvalue = 0x01 | (idform << 2);
+        auto  oldpos = this->front().pos;
+
+        length = ::GetBufLen( lvalue ) + ::GetBufLen( oldpos );
+
+        for ( ptrbeg = this->begin() + 1; ptrbeg != this->end(); oldpos = (ptrbeg++)->pos )
+          length += ::GetBufLen( ptrbeg->pos - oldpos - 1 );
+      }
+        else
+      {
+        auto  oldpos = this->front().pos;
+
+        length = ::GetBufLen( oldpos << 2 ) + ::GetBufLen( this->front().fid );
+
+        for ( ptrbeg = this->begin() + 1; ptrbeg != this->end(); oldpos = (ptrbeg++)->pos )
+          length += ::GetBufLen( ptrbeg->pos - oldpos - 1 ) + 1;
+      }
+      return length;
+    }
+    char* Serialize( char* o ) const override
+    {
+      auto  ptrbeg = this->begin();
+      auto  idform = (ptrbeg++)->fid;
+
+      // check if all the entries have same form
+      while ( ptrbeg != this->end() && ptrbeg->fid == idform )
+        ++ptrbeg;
+
+      if ( ptrbeg == this->end() )
+      {
+        auto  lvalue = 0x01 | (idform << 2);
+        auto  oldpos = this->front().pos;
+
+        o = ::Serialize( ::Serialize( o, lvalue ), oldpos );
+
+        for ( ptrbeg = this->begin() + 1; ptrbeg != this->end(); oldpos = (ptrbeg++)->pos )
+          o = ::Serialize( o, ptrbeg->pos - oldpos - 1 );
+      }
+        else
+      {
+        auto  oldpos = this->front().pos;
+
+        o = ::Serialize( ::Serialize( o, oldpos << 2 ), this->front().fid );
+
+        for ( ptrbeg = this->begin() + 1; ptrbeg != this->end(); oldpos = (ptrbeg++)->pos )
+          o = ::Serialize( ::Serialize( o, ptrbeg->pos - oldpos - 1 ), ptrbeg->fid );
+      }
+
+      return o;
+    }
+
+  };
+
   class DataHolder: public Contents::Entries
   {
     const unsigned  bkType;
@@ -313,7 +397,8 @@ namespace context {
         if ( term.GetForms().empty() || term.GetForms().front() == 0xff )
           contents->AddEntry<Compressor<20, unsigned, Contents::AllocatorType>>( term, i );
         else
-          contents->AddEntry<Compressor<21, RichEntry, Contents::AllocatorType>>( term, { i, term.GetForms().front() } );
+//          contents->AddEntry<Compressor<21, RichEntry, Contents::AllocatorType>>( term, { i, term.GetForms().front() } );
+          contents->AddEntry<WordsForms<21, Contents::AllocatorType>>( term, { i, term.GetForms().front() } );
       }
     }
 
