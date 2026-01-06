@@ -18,8 +18,8 @@ namespace static_ {
   {
     using Allocator = mtc::Arena::allocator<char>;
     using ISerialized = IStorage::ISerialized;
+    using IBlocksRepo = IStorage::ICoordsRepo;
     using IByteBuffer = mtc::IByteBuffer;
-    using IFlatStream = mtc::IFlatStream;
     using PatchHolder = PatchTable<Allocator>;
     using ContentsTable = mtc::radix::dump<const char>;
     using ContentsIterator = ContentsTable::const_iterator;
@@ -59,19 +59,17 @@ namespace static_ {
     auto  Reduce() -> mtc::api<IContentsIndex> override  {  return this;  }
     void  Remove() override;
 
-    void  Stash( EntityId ) override;
-
   protected:
     bool  delEntity( EntityId, uint32_t );
 
   protected:
     mtc::Arena                  memArena;       // allocation arena
-    mtc::api<ISerialized>       xStorage;   // serialized object storage holder
+    mtc::api<ISerialized>       xStorage;       // serialized object storage holder
     mtc::api<const IByteBuffer> tableBuf;
     mtc::api<const IByteBuffer> radixBuf;
     EntityTable<Allocator>      entities;       // static entities table
     ContentsTable               contents;       // radix tree view
-    mtc::api<IFlatStream>       blockBox;
+    mtc::api<IBlocksRepo>       blockBox;
     PatchHolder                 patchTab;
     Bitmap<Allocator>           shadowed;       // deleted documents identifiers
 
@@ -93,6 +91,8 @@ namespace static_ {
     mtc::api<const mtc::IByteBuffer>  iblock;
     const char*                       ptrtop;
     const char*                       ptrend;
+    uint32_t                          jumpId = uint32_t(-1);
+    const char*                       jumpPt = 0;
     Reference                         curref = { 0, { nullptr, 0 } };
 
   };
@@ -101,20 +101,20 @@ namespace static_ {
   {
     using EntitiesBase::EntitiesBase;
 
-    implement_lifetime_control
   public:
     auto  Find( uint32_t ) -> Reference override;
 
+    implement_lifetime_control
   };
 
   class ContentsIndex::EntitiesRich final: public EntitiesBase
   {
     using EntitiesBase::EntitiesBase;
 
-    implement_lifetime_control
   public:
     auto  Find( uint32_t ) -> Reference override;
 
+    implement_lifetime_control
   };
 
   class ContentsIndex::EntityIterator final: public IEntitiesList
@@ -250,7 +250,7 @@ namespace static_ {
         blockOffs ),
         blockSize ) != nullptr )
       {
-        auto  pblock = mtc::api<const IByteBuffer>( blockBox->PGet( blockOffs, blockSize ).ptr() );
+        auto  pblock = mtc::api<const IByteBuffer>( blockBox->Get( blockOffs, blockSize ).ptr() );
 
         if ( blockType == 0 )
           return new EntitiesLite( pblock, blockType, nEntities, this );
@@ -298,14 +298,6 @@ namespace static_ {
   void  ContentsIndex::Remove()
   {
     return xStorage->Remove();
-  }
-
-  void  ContentsIndex::Stash( EntityId id )
-  {
-    auto  getdoc = entities.GetEntity( id );
-
-    if ( getdoc != nullptr )
-      shadowed.Set( getdoc->index );
   }
 
   bool  ContentsIndex::delEntity( EntityId id, uint32_t index )
@@ -358,17 +350,32 @@ namespace static_ {
 
     while ( ptrtop < ptrend )
     {
+      if ( tofind > jumpId )
+      {
+        curref.uEntity = jumpId;  ptrtop = jumpPt;
+          jumpId = (uint32_t)-1;
+      }
+
       if ( (ptrtop = ::FetchFrom( ::FetchFrom( ptrtop, udelta ), ublock )) == nullptr )
         return curref = { (uint32_t)-1, { nullptr, 0 } };
 
-      if ( (curref.uEntity += udelta + 1) >= tofind && !parent->shadowed.Get( curref.uEntity ) )
+      if ( ublock != 0 )
       {
-        curref.details = { ptrtop, ublock };
-        return ptrtop += ublock, curref;
+        if ( (curref.uEntity += udelta + 1) >= tofind && !parent->shadowed.Get( curref.uEntity ) )
+        {
+          curref.details = { ptrtop, ublock };
+          return ptrtop += ublock, curref;
+        }
+        ptrtop += ublock;
       }
+        else
+      {
+        if ( (ptrtop = ::FetchFrom( ::FetchFrom( ptrtop, udelta ), ublock )) == nullptr )
+          return curref = { (uint32_t)-1, { nullptr, 0 } };
 
-      if ( (ptrtop += ublock) >= ptrend )
-        break;
+        jumpId = curref.uEntity + udelta + 1;
+        jumpPt = ptrtop + ublock;
+      }
     }
     return curref = { (uint32_t)-1, { nullptr, 0 } };
   }
