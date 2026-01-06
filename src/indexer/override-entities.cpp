@@ -54,13 +54,13 @@ namespace indexer {
   class override_bundle final: public IEntity
   {
     mtc::api<const IEntity>           entity;
-    mtc::api<IStorage::IDumpStore>    istore;
+    mtc::api<IStorage::IBundleRepo>    istore;
     int64_t                           getpos;
 
     implement_lifetime_control
 
   public:
-    override_bundle( mtc::api<const IEntity> en, const mtc::api<IStorage::IDumpStore>& dm, int64_t dp ):
+    override_bundle( mtc::api<const IEntity> en, const mtc::api<IStorage::IBundleRepo>& dm, int64_t dp ):
       entity( en ),
       istore( dm ),
       getpos( dp ) {}
@@ -89,7 +89,7 @@ namespace indexer {
     return new override_attributes( entity, bb );
   }
 
-  auto  Override::Entity::Bundle( const mtc::api<IStorage::IDumpStore>& ds, int64_t dp ) -> mtc::api<const IEntity>
+  auto  Override::Entity::Bundle( const mtc::api<IStorage::IBundleRepo>& ds, int64_t dp ) -> mtc::api<const IEntity>
   {
     return ds != nullptr && dp != -1 ? new override_bundle( entity, ds, dp ) : entity;
   }
