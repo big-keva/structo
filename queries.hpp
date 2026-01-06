@@ -44,7 +44,6 @@ namespace queries {
 
       Limits  limits;
       double  weight;
-      double  center;
       Spread  spread;
     };
 

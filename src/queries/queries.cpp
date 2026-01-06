@@ -27,16 +27,14 @@ namespace queries {
 
     entrySet.limits = { unsigned(-1), 0U };
     entrySet.weight = weight;
-    entrySet.center = 0;
     entrySet.spread = { entryPtr, entryPtr + posset.size() };
 
     for ( auto& pos: posset )
     {
       entrySet.limits.uMin = std::min( entrySet.limits.uMin, pos.offset );
       entrySet.limits.uMax = std::max( entrySet.limits.uMax, pos.offset );
-      entrySet.center += (*entryPtr++ = pos).offset;
     }
-    return entrySet.center /= posset.size(), entrySet;
+    return entrySet;
   }
 
   auto  MakeEntrySet( mtc::Arena& memory, const std::initializer_list<unsigned>& posset, double weight ) -> Abstract::EntrySet
@@ -46,16 +44,14 @@ namespace queries {
 
     entrySet.limits = { unsigned(-1), 0U };
     entrySet.weight = weight;
-    entrySet.center = 0;
     entrySet.spread = { entryPtr, entryPtr + posset.size() };
 
     for ( auto& pos: posset )
     {
       entrySet.limits.uMin = std::min( entrySet.limits.uMin, pos );
       entrySet.limits.uMax = std::max( entrySet.limits.uMax, pos );
-      entrySet.center += (*entryPtr++ = { 0, pos }).offset;
     }
-    return entrySet.center /= posset.size(), entrySet;
+    return entrySet;
   }
 
 }}
