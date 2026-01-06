@@ -226,12 +226,12 @@ namespace enquote {
           ++quoptr;
       }
         else
-      if ( quoptr != quotes.end() && quoptr->limits.uMin < uBound )
+      while ( quoptr != quotes.end() && quoptr->limits.uMin < uBound )
       {
         addQuotes( output, { lBound, uBound - 1  },
           fdinfo, *quoptr );
-        if ( quoptr->limits.uMax < uBound )
-          ++quoptr;
+        if ( quoptr->limits.uMax < uBound ) ++quoptr;
+          else break;
       }
 
       lBound = uBound;
