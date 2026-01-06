@@ -88,7 +88,7 @@ namespace queries {
 
     // get approximated count
     return {
-      { "count", keyCount = uint32_t(docTotal * (1.0 - negRange)) },
+      { "count", keyCount = uint32_t(1e-3 + docTotal * (1.0 - negRange)) },
       { "range", double(keyCount != 0 ? log( (1.0 + docTotal) / keyCount ) / log(1.0 + docTotal) : 0.0) } };
   }
 
