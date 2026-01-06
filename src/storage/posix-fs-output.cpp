@@ -57,7 +57,7 @@ namespace posixFS {
     auto  Entities() -> mtc::api<mtc::IByteStream> override {  return entities;  }
     auto  Contents() -> mtc::api<mtc::IByteStream> override {  return contents;  }
     auto  Linkages() -> mtc::api<mtc::IByteStream> override {  return linkages;  }
-    auto  Packages() -> mtc::api<IStorage::IDumpStore> override {  return packages;  }
+    auto  Packages() -> mtc::api<IStorage::IBundleRepo> override {  return packages;  }
 
     void  SetStats( const mtc::zmap& stats ) override {  idxStats = stats;  }
 
@@ -71,7 +71,7 @@ namespace posixFS {
     mtc::api<mtc::IByteStream>      entities;
     mtc::api<mtc::IByteStream>      contents;
     mtc::api<mtc::IByteStream>      linkages;
-    mtc::api<IStorage::IDumpStore>  packages;
+    mtc::api<IStorage::IBundleRepo>  packages;
 
     mtc::zmap                       idxStats;
 

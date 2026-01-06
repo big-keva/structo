@@ -39,7 +39,8 @@ namespace structo
     struct IIndexStore;       // interface to write indices
     struct ISerialized;       // interface to read indices
     struct ISourceList;
-    struct IDumpStore;
+    struct ICoordsRepo;
+    struct IBundleRepo;
 
     virtual auto  ListIndices() -> mtc::api<ISourceList> = 0;
     virtual auto  CreateStore() -> mtc::api<IIndexStore> = 0;
@@ -50,7 +51,7 @@ namespace structo
     virtual auto  Entities() -> mtc::api<mtc::IByteStream> = 0;
     virtual auto  Contents() -> mtc::api<mtc::IByteStream> = 0;
     virtual auto  Linkages() -> mtc::api<mtc::IByteStream> = 0;
-    virtual auto  Packages() -> mtc::api<IDumpStore> = 0;
+    virtual auto  Packages() -> mtc::api<IBundleRepo> = 0;
 
     virtual void  SetStats( const mtc::zmap& ) = 0;
 
@@ -64,8 +65,8 @@ namespace structo
 
     virtual auto  Entities() -> mtc::api<const mtc::IByteBuffer> = 0;
     virtual auto  Contents() -> mtc::api<const mtc::IByteBuffer> = 0;
-    virtual auto  Linkages() -> mtc::api<mtc::IFlatStream> = 0;
-    virtual auto  Packages() -> mtc::api<IDumpStore> = 0;
+    virtual auto  Linkages() -> mtc::api<ICoordsRepo> = 0;
+    virtual auto  Packages() -> mtc::api<IBundleRepo> = 0;
 
     virtual auto  GetStats() -> mtc::zmap = 0;
 
@@ -87,7 +88,12 @@ namespace structo
     virtual auto  Get() -> mtc::api<ISerialized> = 0;
   };
 
-  struct IStorage::IDumpStore: Iface
+  struct IStorage::ICoordsRepo: Iface
+  {
+    virtual auto  Get( int64_t, uint64_t ) const -> mtc::api<const mtc::IByteBuffer> = 0;
+  };
+
+  struct IStorage::IBundleRepo: Iface
   {
     virtual auto  Get( int64_t ) const -> mtc::api<const mtc::IByteBuffer> = 0;
     virtual auto  Put( const void*, size_t ) -> int64_t = 0;
@@ -182,14 +188,6 @@ namespace structo
     */
     virtual void  Remove() = 0;
 
-   /*
-    * Stash( id )
-    *
-    * Stashes entity wothout any modifications to index.
-    *
-    * Defined for static indices.
-    */
-    virtual void  Stash( EntityId ) = 0;
   };
 
  /*

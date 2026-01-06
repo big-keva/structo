@@ -6,7 +6,7 @@ namespace structo {
 namespace storage {
 namespace posixFS {
 
-  class DumpStore final: public IStorage::IDumpStore
+  class DumpStore final: public IStorage::IBundleRepo
   {
     implement_lifetime_control
 
@@ -22,7 +22,7 @@ namespace posixFS {
 
   };
 
-  auto  CreateDumpStore( const mtc::api<mtc::IFlatStream>& st ) -> mtc::api<IStorage::IDumpStore>
+  auto  CreateDumpStore( const mtc::api<mtc::IFlatStream>& st ) -> mtc::api<IStorage::IBundleRepo>
   {
     return st != nullptr ? new DumpStore( st ) : nullptr;
   }

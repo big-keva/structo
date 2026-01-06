@@ -37,8 +37,8 @@ namespace posixFS {
   public:
     auto  Entities() -> mtc::api<const mtc::IByteBuffer> override;
     auto  Contents() -> mtc::api<const mtc::IByteBuffer> override;
-    auto  Linkages() -> mtc::api<mtc::IFlatStream> override;
-    auto  Packages() -> mtc::api<IStorage::IDumpStore> override;
+    auto  Linkages() -> mtc::api<IStorage::ICoordsRepo> override;
+    auto  Packages() -> mtc::api<IStorage::IBundleRepo> override;
 
     auto  GetStats() -> mtc::zmap override  {  return idxStats;  }
 
@@ -48,15 +48,28 @@ namespace posixFS {
     auto  NewPatch() -> mtc::api<IPatch> override;
 
   protected:
-    const StoragePolicies                 policies;
+    const StoragePolicies             policies;
 
-    mtc::api<const mtc::IByteBuffer>      entities;
-    mtc::api<const mtc::IByteBuffer>      contents;
-    mtc::api<      mtc::IFlatStream>      linkages;
-    mtc::api<IStorage::IDumpStore>        packages;
+    mtc::api<const mtc::IByteBuffer>  entities;
+    mtc::api<const mtc::IByteBuffer>  contents;
+    mtc::api<IStorage::ICoordsRepo>   linkages;
+    mtc::api<IStorage::IBundleRepo>   packages;
 
-    mtc::zmap                             idxStats;
+    mtc::zmap                         idxStats;
 
+  };
+
+  class BlocksRepo final: public IStorage::ICoordsRepo
+  {
+    mtc::api<mtc::IFileStream>  fileStream;
+
+  public:
+    BlocksRepo( const mtc::api<mtc::IFileStream>& in ):
+      fileStream( in )  {}
+
+    auto  Get( int64_t off, uint64_t len ) const -> mtc::api<const mtc::IByteBuffer> override;
+
+    implement_lifetime_control
   };
 
   auto  LoadByteBuffer( const StoragePolicies& policies, Unit unit ) -> mtc::api<const mtc::IByteBuffer>
@@ -137,17 +150,18 @@ namespace posixFS {
     return contents;
   }
 
-  auto  Serialized::Linkages() -> mtc::api<mtc::IFlatStream>
+  auto  Serialized::Linkages() -> mtc::api<IStorage::ICoordsRepo>
   {
     if ( linkages == nullptr )
     {
-      linkages = mtc::OpenFileStream( policies.GetPolicy( Unit::linkages )->GetFilePath( Unit::linkages ).c_str(),
-        O_RDONLY, mtc::enable_exceptions ).ptr();
+      auto  infile = mtc::OpenFileStream( policies.GetPolicy( Unit::linkages )->GetFilePath( Unit::linkages ).c_str(),
+        O_RDONLY, mtc::enable_exceptions );
+      linkages = new BlocksRepo( infile );
     }
     return linkages;
   }
 
-  auto  Serialized::Packages() -> mtc::api<IStorage::IDumpStore>
+  auto  Serialized::Packages() -> mtc::api<IStorage::IBundleRepo>
   {
     if ( packages == nullptr )
     {
@@ -181,6 +195,13 @@ namespace posixFS {
   auto  Serialized::NewPatch() -> mtc::api<IPatch>
   {
     return nullptr;
+  }
+
+  // BlocksRepo implementation
+
+  auto  BlocksRepo::Get( int64_t off, uint64_t len ) const -> mtc::api<const mtc::IByteBuffer>
+  {
+    return fileStream->MemMap( off, len ).ptr();
   }
 
   auto  OpenSerial( const StoragePolicies& policies ) -> mtc::api<IStorage::ISerialized>

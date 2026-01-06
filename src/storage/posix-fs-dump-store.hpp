@@ -4,6 +4,6 @@ namespace structo {
 namespace storage {
 namespace posixFS {
 
-  auto  CreateDumpStore( const mtc::api<mtc::IFlatStream>& ) -> mtc::api<IStorage::IDumpStore>;
+  auto  CreateDumpStore( const mtc::api<mtc::IFlatStream>& ) -> mtc::api<IStorage::IBundleRepo>;
 
 }}}
