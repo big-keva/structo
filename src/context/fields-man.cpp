@@ -1,4 +1,6 @@
 # include "../../context/fields-man.hpp"
+
+#include <compat.hpp>
 # include <mtc/wcsstr.h>
 # include <unordered_map>
 # include <shared_mutex>
@@ -169,11 +171,11 @@ namespace context {
       if ( next.second.get_type() != mtc::zval::z_zmap )
         throw std::invalid_argument( "field 'indents' has to have struct values" );
 
-      if ( strcmp( next.first.to_charstr(), "lower" ) == 0 )  LoadMinMax( opts.indents.lower, *next.second.get_zmap() );
+      if ( next.first == "l" )  LoadMinMax( opts.indents.lower, *next.second.get_zmap() );
         else
-      if ( strcmp( next.first.to_charstr(), "upper" ) == 0 )  LoadMinMax( opts.indents.upper, *next.second.get_zmap() );
+      if ( next.first == "h" )  LoadMinMax( opts.indents.upper, *next.second.get_zmap() );
         else
-      throw std::invalid_argument( "field 'indents' has to have only 'lower' and 'upper' keys" );
+      throw std::invalid_argument( "field 'indents' has to have only 'l' and 'h' keys" );
     }
   }
 
@@ -250,13 +252,31 @@ namespace context {
         else
       if ( next.first == "options" )
       {
-        if ( next.second.get_type() == mtc::zval::z_charstr ) GetOptions( opts, *next.second.get_charstr() );
-          else throw std::invalid_argument( "field 'options' has to be string" );
+        if ( next.second.get_type() == mtc::zval::z_charstr )
+        {
+          GetOptions( opts, *next.second.get_charstr() );
+        }
+          else
+        if ( next.second.get_type() == mtc::zval::z_word32 )
+        {
+          opts.options = *next.second.get_word32();
+        }
+          else
+        throw std::invalid_argument( "field 'options' has to be string or uint32" );
+      }
+        else
+      if ( next.first == "id" )
+      {
+        if ( next.second.cast_to_word32( -1 ) != opts.id )
+        {
+          throw std::invalid_argument( mtc::strprintf( "invalid field '%s' order, 'id' mismatch @" __FILE__ ":" LINE_STRING,
+            field.get_charstr( "name", "???" ).c_str() ) );
+        }
       }
         else
       if ( next.first != "name" )
       {
-        throw std::invalid_argument( mtc::strprintf( "unexpected field '%s'",
+        throw std::invalid_argument( mtc::strprintf( "unexpected field '%s' @" __FILE__ ":" LINE_STRING,
           next.first.to_charstr() ) );
       }
     }
