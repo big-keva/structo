@@ -200,8 +200,8 @@ namespace queries {
     double    DistRange( double distance ) const
     {
       return distance >= 0 ?
-        0.05 + 0.95 * pow(cos(atan(fabs(distance / 5.0))), 3) :
-        0.05 + 0.85 * pow(cos(atan(fabs(distance / 5.0))), 3);
+        0.01 + 0.99 * cos(atan(fabs(distance / 5.0))) :
+        0.01 + 0.95 * cos(atan(fabs(distance / 5.0)));
     }
   protected:
     double  quorum;
@@ -639,9 +639,6 @@ namespace queries {
     if ( weight < quorum )
       return entityId = uint32_t(-1);
 
-    for ( auto& rquery: querySet )
-      rquery.SearchDoc( ufound );
-
     return entityId = ufound;
   }
 
@@ -691,10 +688,13 @@ namespace queries {
           }
             else
           {
+            auto  fnDist = DistRange( int(rentry.pbeg->limits.uMin - despos - querySet[nquery].keyOrder) );
+            auto  tmRank = rentry.pbeg->weight;
+
             if ( rentry.pbeg->limits.uMin < uLower )
               uLower = (pLower = &rentry)->pbeg->limits.uMin;
-            scalar += rentry.pbeg->weight * DistRange( int(rentry.pbeg->limits.uMin - despos - querySet[nquery].keyOrder) );
-            en_len += rentry.pbeg->weight * rentry.pbeg->weight;
+            scalar += tmRank * fnDist;
+            en_len += tmRank * tmRank;
           }
         }
 
@@ -712,23 +712,24 @@ namespace queries {
             continue;
 
         // максимально приблизиться с найденному кворуму кортежа
-          while ( rentry.pbeg + 1 < rentry.pend && fabs(1.0 * uLower - rentry.pbeg[1].limits.uMin)
-            < fabs(1.0 * uLower - rentry.pbeg[0].limits.uMin) ) ++rentry.pbeg;
+          if ( rentry.pbeg[0].limits.uMin < uLower )
+          {
+            for ( auto plimit = rentry.pend - 1; rentry.pbeg < plimit && rentry.pbeg[1].limits.uMin < uLower;
+              ++rentry.pbeg ) (void)NULL;
+          }
 
         // проверить возможные лимиты
-          if ( rentry.pbeg != rentry.pend )
-          {
-            if ( rentry.pbeg->limits.uMin < uLower )
-              uLower = (pLower = &rentry)->pbeg->limits.uMin;
+          auto  fnDist = DistRange( int(rentry.pbeg->limits.uMin - despos - querySet[nquery].keyOrder) );
+          auto  tmRank = rentry.pbeg->weight;
 
-            scalar += rentry.pbeg->weight * DistRange( int(rentry.pbeg->limits.uMin -
-              despos - querySet[nquery].keyOrder) );
-            en_len += rentry.pbeg->weight * rentry.pbeg->weight;
-          }
+          if ( rentry.pbeg->limits.uMin < uLower )
+            uLower = (pLower = &rentry)->pbeg->limits.uMin;
+          scalar += tmRank * fnDist;
+          en_len += tmRank * tmRank;
         }
 
         auto  weight = scalar / sqrt(querySet.size() * en_len);
-        bool  useEnt = weight >= 0.01;
+        bool  useEnt = weight >= 0.1;
 
         if ( useEnt && outEnt != entryBuf.data() && outEnt[-1].limits.uMax >= uLower )
         {
