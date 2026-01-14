@@ -6,6 +6,9 @@
 # include <mtc/wcsstr.h>
 # include <mtc/json.h>
 # include <stdexcept>
+# include <aio.h>
+# include <sys/mman.h>
+# include <sys/stat.h>
 
 template <>
 int*  FetchFrom( int* pfd, void* pv, size_t cc )
@@ -61,14 +64,105 @@ namespace posixFS {
 
   class BlocksRepo final: public IStorage::ICoordsRepo
   {
-    mtc::api<mtc::IFileStream>  fileStream;
+    class Mapping;
+    class AioLoad;
+
+    const size_t  ccpage = getpagesize();
+    int64_t       cbfile;
+    int           handle;
 
   public:
-    BlocksRepo( const mtc::api<mtc::IFileStream>& in ):
-      fileStream( in )  {}
+    BlocksRepo( int in ): handle( in )
+    {
+      struct stat64 fistat;
 
-    auto  Get( int64_t off, uint64_t len ) const -> mtc::api<const mtc::IByteBuffer> override;
+      if ( fstat64( in, &fistat ) == 0 )  cbfile = fistat.st_size;
+        else throw mtc::file_error( "could not get file size" );
+    }
 
+    auto  Get( int64_t off, int64_t len ) const -> mtc::api<const mtc::IByteBuffer> override;
+
+  protected:
+    auto  Mapped( int64_t off, int64_t len ) const -> mtc::api<const mtc::IByteBuffer>;
+    auto  AioGet( int64_t off, int64_t len ) const -> mtc::api<const mtc::IByteBuffer>;
+
+    implement_lifetime_control
+  };
+
+  class BlocksRepo::Mapping final: public mtc::IByteBuffer
+  {
+    void*       mapped;
+    const char* ptrtop;
+    size_t      length;
+
+  public:
+    Mapping( void* mem, const char* ptr, size_t len ):
+      mapped( mem ),
+      ptrtop( ptr ),
+      length( len ) {}
+   ~Mapping()
+      {
+        munmap( mapped, ptrtop + length - (const char*)mapped );
+      }
+    const char* GetPtr() const override
+      {  return ptrtop;  }
+    size_t      GetLen() const override
+      {  return length;  }
+    int         SetBuf( const void*, size_t ) override
+      {  throw std::logic_error( "not implemented" );  }
+    int         SetLen( size_t ) override
+      {  throw std::logic_error( "not implemented" );  }
+
+    implement_lifetime_control
+  };
+
+  class BlocksRepo::AioLoad final: public mtc::IByteBuffer
+  {
+    aiocb               aioCtl;
+    const size_t        length;
+    mutable const char* buffer = nullptr;
+
+  public:
+    AioLoad( int fd, int64_t off, size_t len ): length( len )
+      {
+        memset( &aioCtl, 0, sizeof(aioCtl) );
+
+        aioCtl.aio_fildes = fd;
+        aioCtl.aio_buf = this + 1;
+        aioCtl.aio_nbytes = len;
+        aioCtl.aio_offset = off;
+        aioCtl.aio_sigevent.sigev_notify = SIGEV_NONE;
+
+        if ( aio_read( &aioCtl ) != 0 )
+          throw mtc::file_error( "could not start aio reading" );
+      }
+    void  operator delete( void* p )
+      {  delete [] (char*)p;  }
+    const char* GetPtr() const override
+      {
+        if ( buffer == nullptr )
+        {
+          if ( aio_error( &aioCtl ) == EINPROGRESS )
+          {
+            auto  waitIt = &aioCtl;
+            auto  msWait = timespec{ 0, 500 * 1000000 }; // 500ms
+
+            if ( aio_suspend( &waitIt, 1, &msWait ) != 0 )
+              throw mtc::file_error( "could not aio_read buffer data" );
+
+            if ( aio_error( &aioCtl ) != 0 )
+              throw mtc::file_error( "error aio_reading buffer data" );
+          }
+          buffer = (const char*)(this + 1);
+        }
+        return buffer;
+      }
+    size_t      GetLen() const override
+      {  return length;  }
+    int         SetBuf( const void*, size_t ) override
+      {  throw std::logic_error( "not implemented" );  }
+    int         SetLen( size_t              ) override
+      {  throw std::logic_error( "not implemented" );  }
     implement_lifetime_control
   };
 
@@ -154,8 +248,14 @@ namespace posixFS {
   {
     if ( linkages == nullptr )
     {
-      auto  infile = mtc::OpenFileStream( policies.GetPolicy( Unit::linkages )->GetFilePath( Unit::linkages ).c_str(),
-        O_RDONLY, mtc::enable_exceptions );
+      auto  szpath = policies.GetPolicy( Unit::linkages )->GetFilePath( Unit::linkages );
+      auto  infile = open( szpath.c_str(), O_RDONLY );
+
+      if ( infile == -1 )
+      {
+        throw mtc::file_error( mtc::strprintf( "could not open file '%s', error %d (%s)",
+          szpath.c_str(), errno, strerror( errno ) ) );
+      }
       linkages = new BlocksRepo( infile );
     }
     return linkages;
@@ -199,9 +299,35 @@ namespace posixFS {
 
   // BlocksRepo implementation
 
-  auto  BlocksRepo::Get( int64_t off, uint64_t len ) const -> mtc::api<const mtc::IByteBuffer>
+  auto  BlocksRepo::Get( int64_t off, int64_t len ) const -> mtc::api<const mtc::IByteBuffer>
   {
-    return fileStream->MemMap( off, len ).ptr();
+    return len > 100 * 1024 * 1024 ?
+      Mapped( off, len ) :
+      AioGet( off, len );
+  }
+
+  auto  BlocksRepo::Mapped( int64_t off, int64_t len ) const -> mtc::api<const mtc::IByteBuffer>
+  {
+    auto  alignOff = (off / ccpage) * ccpage;
+    auto  shiftOff = uint32_t(off - alignOff);
+    auto  alignLen = size_t(len + shiftOff);
+
+    auto  blockMap = mmap( NULL, alignLen, PROT_READ, MAP_PRIVATE, handle, alignOff );
+
+    if ( blockMap == MAP_FAILED )
+    {
+      throw mtc::file_error( mtc::strprintf( "could not map file %d, error %d (%s)",
+        handle, errno, strerror( errno ) ) );
+    }
+    return new Mapping( blockMap, shiftOff + (char*)blockMap, len );
+  }
+
+  auto  BlocksRepo::AioGet( int64_t off, int64_t len ) const -> mtc::api<const mtc::IByteBuffer>
+  {
+    auto  nalloc = len + sizeof(AioLoad);
+    auto  palloc = new char[nalloc];
+
+    return new( palloc ) AioLoad( handle, off, len );
   }
 
   auto  OpenSerial( const StoragePolicies& policies ) -> mtc::api<IStorage::ISerialized>

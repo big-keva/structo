@@ -89,8 +89,8 @@ namespace static_ {
     const uint32_t                    ncount;
     mtc::api<const ContentsIndex>     parent;
     mtc::api<const mtc::IByteBuffer>  iblock;
-    const char*                       ptrtop;
-    const char*                       ptrend;
+    const char*                       ptrtop = nullptr;
+    const char*                       ptrend = nullptr;
     uint32_t                          jumpId = uint32_t(-1);
     const char*                       jumpPt = 0;
     Reference                         curref = { 0, { nullptr, 0 } };
@@ -317,16 +317,15 @@ namespace static_ {
       bkType( btp ),
       ncount( cnt ),
       parent( own ),
-      iblock( src ),
-      ptrtop( src->GetPtr() ),
-      ptrend( ptrtop + src->GetLen() )
-  {
-  }
+      iblock( src )  {}
 
   // ContentsIndex::EntitiesLite implementation
 
   auto  ContentsIndex::EntitiesLite::Find( uint32_t tofind ) -> Reference
   {
+    if ( ptrtop == nullptr )
+      ptrend = (ptrtop = iblock->GetPtr()) + iblock->GetLen();
+
     for ( tofind = std::max( tofind, 1U ); ptrtop < ptrend && curref.uEntity < tofind; )
     {
       unsigned  udelta;
@@ -347,6 +346,9 @@ namespace static_ {
 
     if ( curref.uEntity >= (tofind = std::max( tofind, 1U )) )
       return curref;
+
+    if ( ptrtop == nullptr )
+      ptrend = (ptrtop = iblock->GetPtr()) + iblock->GetLen();
 
     while ( ptrtop < ptrend )
     {

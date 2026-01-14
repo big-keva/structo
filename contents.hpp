@@ -90,7 +90,7 @@ namespace structo
 
   struct IStorage::ICoordsRepo: Iface
   {
-    virtual auto  Get( int64_t, uint64_t ) const -> mtc::api<const mtc::IByteBuffer> = 0;
+    virtual auto  Get( int64_t, int64_t ) const -> mtc::api<const mtc::IByteBuffer> = 0;
   };
 
   struct IStorage::IBundleRepo: Iface
