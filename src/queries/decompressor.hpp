@@ -5,6 +5,37 @@
 namespace structo {
 namespace queries {
 
+ /*
+  * Специализация ::FetchFrom( S*, T& )
+  */
+  inline const char* Fetch( const char* s, unsigned& t ) noexcept
+  {
+    auto  bvalue = uint8_t(*s++);
+    auto  result = unsigned(bvalue & 0x7f);
+
+    if ( (bvalue & 0x80) == 0 )
+      return t = result, s;
+
+    result |= unsigned((bvalue = uint8_t(*s++)) & 0x7f) << 7;
+
+    if ( (bvalue & 0x80) == 0 )
+      return t = result, s;
+
+    result |= unsigned((bvalue = uint8_t(*s++)) & 0x7f) << 14;
+
+    if ( (bvalue & 0x80) == 0 )
+      return t = result, s;
+
+    result |= unsigned((bvalue = uint8_t(*s++)) & 0x7f) << 21;
+
+    if ( (bvalue & 0x80) == 0 )
+      return t = result, s;
+
+    result |= unsigned((bvalue = uint8_t(*s++)) & 0x7f) << 28;
+
+    return t = result, s;
+  }
+
   template <class RankEntry>
   auto  UnpackWordPos(
     Abstract::EntrySet* output,
@@ -22,7 +53,7 @@ namespace queries {
       unsigned  uOrder;
       double    weight;
 
-      srcPtr = ::FetchFrom( srcPtr, uOrder );
+      srcPtr = Fetch( srcPtr, uOrder );
 
       if ( (weight = ranker( uEntry = (uOrder += uEntry), 0xff )) < 0 )
         continue;
@@ -52,7 +83,7 @@ namespace queries {
     {
       unsigned ctlFid;
 
-      srcPtr = ::FetchFrom( ::FetchFrom( srcPtr, ctlFid ), uEntry );
+      srcPtr = Fetch( Fetch( srcPtr, ctlFid ), uEntry );
 
       for ( getFid = ctlFid >> 2; outPtr != outEnd; ++uEntry )
       {
@@ -64,14 +95,15 @@ namespace queries {
 
         if ( srcPtr != srcEnd )
         {
-          srcPtr = ::FetchFrom( srcPtr, ctlFid );
+          srcPtr = Fetch( srcPtr, ctlFid );
           uEntry += ctlFid;
         } else break;
       }
     }
       else
     {
-      srcPtr = ::FetchFrom( ::FetchFrom( srcPtr, uEntry ), getFid );
+      srcPtr = FetchFrom( srcPtr, uEntry );
+        getFid = *srcPtr++;
 
       for ( uEntry >>= 2; outPtr != outEnd; ++uEntry )
       {
@@ -84,7 +116,8 @@ namespace queries {
         }
         if ( srcPtr != srcEnd )
         {
-          srcPtr = ::FetchFrom( ::FetchFrom( srcPtr, uOrder ), getFid );
+          srcPtr = Fetch( srcPtr, uOrder );
+            getFid = *srcPtr++;
           uEntry += uOrder;
         } else break;
       }

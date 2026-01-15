@@ -359,13 +359,14 @@ namespace queries {
       auto    posPtr = pointBuf.data();
 
     // request elements in found blocks
-      for ( size_t i = 0; i != blockSet.size(); ++i )
-        if ( blockSet[i].docRefer.uEntity == getdoc )
+      for ( auto& next: blockSet )
+        if ( next.docRefer.uEntity == getdoc )
         {
-          auto  ucount = blockSet[i].Unpack( entPtr, posPtr, entryBuf.data() + entryBuf.size() - entPtr, fmt, 0 );
+          auto  ucount = next.Unpack( entPtr, posPtr, entryBuf.data() + entryBuf.size() - entPtr, fmt, 0 );
             entPtr += ucount;
             posPtr += ucount;
-          ++nfound;
+          if ( ucount != 0 )
+            ++nfound;
         }
 
     // check if single or multiple blocks
@@ -379,13 +380,13 @@ namespace queries {
       std::sort( entryBuf.data(), entPtr, []( const EntrySet& lhs, const EntrySet& rhs )
         {  return lhs.limits.uMin < rhs.limits.uMin;  } );
 
-      for ( auto srcPtr = entryBuf.data() + 1; srcPtr != entPtr; )
+      for ( auto srcPtr = entryBuf.data() + 1; srcPtr != entPtr; ++srcPtr )
       {
-        if ( entPtr->limits.uMin != outPtr->limits.uMin || entPtr->weight < outPtr->weight )
-          *outPtr++ = *srcPtr++;
-        else ++srcPtr;
+        if ( srcPtr->limits.uMin != outPtr->limits.uMin ) *++outPtr = *srcPtr;
+          else
+        if ( srcPtr->weight > outPtr->weight )  *outPtr = *srcPtr;
       }
-      return abstract = { Abstract::Rich, 0, { entryBuf.data(), outPtr } };
+      return abstract = { Abstract::Rich, 0, { entryBuf.data(), outPtr + 1 } };
     }
     return getdoc == entityId ? abstract : abstract = {};
   }
@@ -515,13 +516,12 @@ namespace queries {
     // shrink overlapping entries to suppress far and low-weight entries
       while ( outEnt != entryEnd )
       {
-        auto  nindex = size_t(0);
         auto  begpos = unsigned(0);
         auto  weight = double{};
         auto  uLower = unsigned(-1);
 
         // search exact sequence of elements
-        while ( nindex != querySet.size() )
+        for ( size_t nindex = 0; nindex != querySet.size(); )
         {
           auto& next = querySet[nindex];
           auto& rent = next.abstract.entries;
@@ -729,7 +729,7 @@ namespace queries {
         }
 
         auto  weight = scalar / sqrt(querySet.size() * en_len);
-        bool  useEnt = weight >= 0.1;
+        bool  useEnt = weight >= 0.3;
 
         if ( useEnt && outEnt != entryBuf.data() && outEnt[-1].limits.uMax >= uLower )
         {

@@ -45,13 +45,18 @@ namespace queries {
   public:
     double  operator()( unsigned pos, uint8_t fid ) const
     {
+      auto  selfmt = unsigned(-1);
+
       while ( fmttop != fmtend && fmttop->uUpper < pos )
         ++fmttop;
+
       if ( fmttop == fmtend )
         return ranker( unsigned(-1), fid );
-      while ( fmttop + 1 != fmtend && fmttop[1].uLower <= pos && fmttop[1].uUpper >= pos )
-        ++fmttop;
-      return ranker( fmttop->uLower <= pos && fmttop->uUpper >= pos ? fmttop->format : unsigned(-1), fid );
+
+      for ( selfmt = fmttop->format; fmttop + 1 != fmtend && fmttop[1].uLower <= pos && fmttop[1].uUpper >= pos; )
+        selfmt = (++fmttop)->format;
+
+      return ranker( selfmt, fid );
     }
   };
 
