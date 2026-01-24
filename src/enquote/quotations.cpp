@@ -1,10 +1,8 @@
 # include "../../enquote/quotations.hpp"
-
-#include <moonycode/chartype.h>
-
 # include "../../context/pack-images.hpp"
 # include "../../context/pack-format.hpp"
 # include "../../context/text-image.hpp"
+# include <moonycode/codes.h>
 
 namespace structo {
 namespace enquote {
@@ -19,7 +17,7 @@ namespace enquote {
     const FieldHandler&   fields;
     std::string           tagBeg = "\x7";
     std::string           tagEnd = "\x8";
-    FieldOptions default_options = { unsigned(-1), "", 1.0, 0, { { 2, 8 }, { 4, 8 } } };
+    FieldOptions default_options = { unsigned(-1), "", 1.0, 0, 0, { { 2, 8 }, { 4, 8 } } };
 
   };
 
@@ -457,16 +455,17 @@ namespace enquote {
       const queries::Abstract&      quotes )
     {
       auto  ximage = context::Image();
-      auto  addTag = [&]( const context::formats::RankerTag& tag )
+      auto  tagset = context::formats::Unpack( fmtsrc );
+
+      context::imaging::Unpack( ximage, imgsrc );
+
+      for ( auto& tag: tagset )
       {
         auto  pf = opts->fields.Get( tag.format );
 
         if ( pf != nullptr )
           ximage.GetMarkup().push_back( { pf->name.data(), tag.uLower, tag.uUpper } );
-      };
-
-      context::imaging::Unpack( ximage, imgsrc );
-      context::formats::Unpack( addTag, fmtsrc );
+      }
 
       return quoter_function( opts, ximage.GetTokens(), ximage.GetMarkup(), GetQuotation( quotes ) )
         .GetQuotes( output );
@@ -482,16 +481,17 @@ namespace enquote {
       const queries::Abstract&      quotes )
     {
       auto  ximage = context::Image();
-      auto  addTag = [&]( const context::formats::RankerTag& tag )
+      auto  tagset = context::formats::Unpack( fmtsrc );
+
+      context::imaging::Unpack( ximage, imgsrc );
+
+      for ( auto& tag: tagset )
       {
         auto  pf = opts->fields.Get( tag.format );
 
         if ( pf != nullptr )
           ximage.GetMarkup().push_back( { pf->name.data(), tag.uLower, tag.uUpper } );
-      };
-
-      context::imaging::Unpack( ximage, imgsrc );
-      context::formats::Unpack( addTag, fmtsrc );
+      }
 
       return quoter_function( opts, ximage.GetTokens(), ximage.GetMarkup(), GetQuotation( quotes ) )
         .GetSource( output );
