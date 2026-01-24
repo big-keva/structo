@@ -20,8 +20,8 @@ namespace queries {
 
     struct EntryPos
     {
-      unsigned  termID;
       unsigned  offset;
+      unsigned  termID;
     };
 
     struct EntrySet
@@ -29,7 +29,11 @@ namespace queries {
       struct Limits
       {
         unsigned uMin;
-        unsigned uMax;
+        union
+        {
+          EntryPos ePos;
+          unsigned uMax;
+        };
       };
       struct Spread
       {
@@ -95,8 +99,8 @@ namespace queries {
   */
   struct IQuery: mtc::Iface
   {
-    virtual uint32_t  SearchDoc( uint32_t ) = 0;
-    virtual Abstract  GetTuples( uint32_t ) = 0;
+    virtual uint32_t        SearchDoc( uint32_t ) = 0;
+    virtual const Abstract& GetTuples( uint32_t ) = 0;
   };
 
   auto  GetQuotation( const Abstract& ) -> Abstract::Entries;
@@ -104,6 +108,15 @@ namespace queries {
   auto  MakeAbstract( mtc::Arena&, const std::initializer_list<Abstract::EntrySet>& ) -> Abstract;
   auto  MakeEntrySet( mtc::Arena&, const std::initializer_list<Abstract::EntryPos>&, double = 0.1 ) -> Abstract::EntrySet;
   auto  MakeEntrySet( mtc::Arena&, const std::initializer_list<unsigned>&, double = 0.1 ) -> Abstract::EntrySet;
+
+  inline
+  auto  MakeEntrySet( Abstract::EntrySet& ent, const Abstract::EntryPos& pos, double wht = 0.0 ) -> Abstract::EntrySet&
+  {
+    ent.limits = { pos.offset, pos };
+    ent.weight = wht;
+    ent.spread = { &ent.limits.ePos, 1 + &ent.limits.ePos };
+    return ent;
+  }
 
 }}
 
