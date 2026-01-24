@@ -1,4 +1,5 @@
 # include "../../queries/builder.hpp"
+# include "../../context/pack-format.hpp"
 # include "../../compat.hpp"
 # include "rich-rankers.hpp"
 # include "query-tools.hpp"
@@ -15,7 +16,6 @@ namespace queries {
 
   using IEntities = IContentsIndex::IEntities;
   using Reference = IEntities::Reference;
-  using RankerTag = context::RankerTag;
 
  /*
   * RichQueryBase обеспечивает синхронное продвижение по форматам вместе с координатами
@@ -26,8 +26,8 @@ namespace queries {
     RichQueryBase( mtc::api<IEntities> fmt ):
       fmtBlock( fmt ) {}
 
-    virtual Abstract  GetTuples( uint32_t );
-    virtual Abstract& GetChunks( uint32_t, const mtc::span<const RankerTag>& ) = 0;
+    virtual auto  GetTuples( uint32_t ) -> const Abstract&;
+    virtual auto  GetChunks( uint32_t, mtc::span<const char>, const Limits& = {} ) -> Abstract& = 0;
 
   protected:
     auto  SetPoints( EntryPos*, const EntryPos*, const EntrySet& ) const -> EntryPos*;
@@ -54,7 +54,7 @@ namespace queries {
 
   // overridables
     uint32_t  SearchDoc( uint32_t ) override;
-    Abstract& GetChunks( uint32_t, const mtc::span<const RankerTag>& ) override;
+    Abstract& GetChunks( uint32_t, mtc::span<const char>, const Limits& ) override;
 
   protected:
     mtc::api<IEntities> entBlock;
@@ -62,7 +62,6 @@ namespace queries {
     TermRanker          tmRanker;
     Reference           docRefer;
     EntrySet            entryBuf[0x10000];
-    EntryPos            pointBuf[0x10000];
 
   };
 
@@ -79,6 +78,7 @@ namespace queries {
       const unsigned      datatype;
       TermRanker          tmRanker;
       Reference           docRefer = { 0, { nullptr, 0 } };   // entity reference set
+      PosFid              entryPos[0x10000];
 
     // construction
       KeyBlock( const mtc::api<IEntities>& bk, TermRanker&& tr ):
@@ -87,12 +87,11 @@ namespace queries {
         tmRanker( std::move( tr ) )  {}
 
     // methods
-      auto  Unpack( EntrySet* tuples, EntryPos* points, size_t maxlen,
-        const mtc::span<const RankerTag>& format, unsigned id ) -> unsigned
+      auto  Unpack( const Limits& limits ) -> unsigned
       {
         return
-          datatype == 20 ? UnpackWordPos( tuples, points, maxlen, docRefer.details, tmRanker.GetRanker( format ), id ) :
-          datatype == 21 ? UnpackWordFid( tuples, points, maxlen, docRefer.details, tmRanker.GetRanker( format ), id ) :
+          datatype == 20 ? UnpackWordPos( entryPos, docRefer.details, limits ) :
+          datatype == 21 ? UnpackWordFid( entryPos, docRefer.details, limits ) :
           throw std::logic_error( "unknown block type @" __FILE__ ":" LINE_STRING );
       }
     };
@@ -104,12 +103,11 @@ namespace queries {
 
   // IQuery overridables
     uint32_t  SearchDoc( uint32_t ) override;
-    Abstract& GetChunks( uint32_t, const mtc::span<const RankerTag>& ) override;
+    Abstract& GetChunks( uint32_t, mtc::span<const char>, const Limits& ) override;
 
   protected:
     std::vector<KeyBlock>   blockSet;
     std::vector<EntrySet>   entryBuf;
-    std::vector<EntryPos>   pointBuf;
 
   };
 
@@ -143,10 +141,10 @@ namespace queries {
           return docFound;
         return abstract = {}, docFound = subQuery->SearchDoc( id );
       }
-      auto  GetChunks( uint32_t id, const mtc::span<const RankerTag>& ft ) -> const Abstract&
+      auto  GetChunks( uint32_t id, mtc::span<const char> ft, const Limits& lm ) -> const Abstract&
       {
         return abstract.dwMode == abstract.None && docFound == id ?
-          abstract = subQuery->GetChunks( id, ft ) : abstract;
+          abstract = subQuery->GetChunks( id, ft, lm ) : abstract;
       }
     };
 
@@ -167,7 +165,7 @@ namespace queries {
 
     // overridables
     uint32_t  SearchDoc( uint32_t id ) override  {  return StrictSearch( id );  }
-    Abstract& GetChunks( uint32_t id, const mtc::span<const RankerTag>& ) override;
+    Abstract& GetChunks( uint32_t id, mtc::span<const char>, const Limits& ) override;
 
   };
 
@@ -179,7 +177,7 @@ namespace queries {
 
     // overridables
     uint32_t  SearchDoc( uint32_t id ) override {  return StrictSearch( id );  }
-    Abstract& GetChunks( uint32_t id, const mtc::span<const RankerTag>& ) override;
+    Abstract& GetChunks( uint32_t id, mtc::span<const char>, const Limits& ) override;
 
   };
 
@@ -195,7 +193,7 @@ namespace queries {
 
     // overridables
     uint32_t  SearchDoc( uint32_t id ) override;
-    Abstract& GetChunks( uint32_t id, const mtc::span<const RankerTag>& ) override;
+    Abstract& GetChunks( uint32_t id, mtc::span<const char>, const Limits& ) override;
 
     double    DistRange( double distance ) const
     {
@@ -216,7 +214,7 @@ namespace queries {
 
     // overridables
     uint32_t  SearchDoc( uint32_t ) override;
-    Abstract& GetChunks( uint32_t, const mtc::span<const RankerTag>& ) override;
+    Abstract& GetChunks( uint32_t, mtc::span<const char>, const Limits& ) override;
 
   protected:
     std::vector<Abstract*>  selected;
@@ -245,7 +243,7 @@ namespace queries {
     implement_lifetime_control
 
   // overridables
-    Abstract& GetChunks( uint32_t id, const mtc::span<const RankerTag>& ) override;
+    Abstract& GetChunks( uint32_t id, mtc::span<const char>, const Limits& ) override;
   };
 
   class RichQueryMatch final: public RichQueryField
@@ -255,23 +253,22 @@ namespace queries {
     implement_lifetime_control
 
   // overridables
-    Abstract& GetChunks( uint32_t id, const mtc::span<const RankerTag>& ) override;
+    Abstract& GetChunks( uint32_t id, mtc::span<const char>, const Limits& ) override;
   };
 
   // RichQueryBase implementation
 
-  auto  RichQueryBase::GetTuples( uint32_t tofind ) -> Abstract
+  auto  RichQueryBase::GetTuples( uint32_t tofind ) -> const Abstract&
   {
-  // reposition the formats block to document ranked
+    // reposition the formats block to document ranked
     if ( tofind == entityId && (fmtRefer = fmtBlock->Find( tofind )).uEntity == tofind )
     {
-      RankerTag format[0x1000];
       uint32_t  nWords;
-      size_t    uCount = context::formats::Unpack( format,
-        ::FetchFrom( fmtRefer.details.data(), nWords ), fmtRefer.details.size() );
-      auto&     report = GetChunks( tofind, { format, uCount } );
+      auto      fmtbeg = ::FetchFrom( fmtRefer.details.data(), nWords );
 
-      return report.nWords = nWords, report;
+      abstract = GetChunks( tofind, { fmtbeg, size_t(fmtRefer.details.data() + fmtRefer.details.size() - fmtbeg) } );
+        abstract.nWords = nWords;
+      return abstract;
     }
     return abstract = {};
   }
@@ -304,13 +301,16 @@ namespace queries {
   * For changed document id, unpack && return the entries and entry sets for given
   * format set
   */
-  Abstract& RichQueryTerm::GetChunks( uint32_t tofind, const mtc::span<const RankerTag>& fmt )
+  Abstract& RichQueryTerm::GetChunks( uint32_t tofind, mtc::span<const char> fmt, const Limits& lim )
   {
     if ( docRefer.uEntity == tofind && abstract.dwMode == Abstract::None )
     {
+      auto  format = context::formats::FormatBox( fmt );
+      auto  ranker = [&]( unsigned pos, uint8_t fid ) -> double
+        {  return tmRanker( format.Get( pos ), fid );  };
       auto  numEnt = datatype == 20 ?
-        UnpackWordPos( entryBuf, pointBuf, docRefer.details, tmRanker.GetRanker( fmt ), 0 ) :
-        UnpackWordFid( entryBuf, pointBuf, docRefer.details, tmRanker.GetRanker( fmt ), 0 );
+        UnpackWordPos( entryBuf, docRefer.details, ranker, lim, 0 ) :
+        UnpackWordFid( entryBuf, docRefer.details, ranker, lim, 0 );
 
       if ( numEnt != 0 )
         abstract = { Abstract::Rich, 0, entryBuf, entryBuf + numEnt };
@@ -322,8 +322,7 @@ namespace queries {
 
   RichMultiTerm::RichMultiTerm( mtc::api<IEntities> fmt, std::vector<std::pair<mtc::api<IEntities>, TermRanker>>& terms ):
     RichQueryBase( fmt ),
-    entryBuf( 0x10000 ),
-    pointBuf( 0x10000 )
+    entryBuf( 0x10000 )
   {
     for ( auto& create: terms )
       blockSet.emplace_back( create.first, std::move( create.second ) );
@@ -349,44 +348,80 @@ namespace queries {
     return abstract = {}, entityId = uFound;
   }
 
-  Abstract& RichMultiTerm::GetChunks( uint32_t getdoc, const mtc::span<const RankerTag>& fmt )
+  Abstract& RichMultiTerm::GetChunks( uint32_t getdoc, mtc::span<const char> ftbuff, const Limits& limits )
   {
-    if ( abstract.entries.empty() )
+    struct  PosSet
     {
-      size_t  nfound = 0;
-      auto    entPtr = entryBuf.data();
-      auto    outPtr = entryBuf.data();
-      auto    posPtr = pointBuf.data();
+      PosFid*           ptrbeg;
+      PosFid*           ptrend;
+      const TermRanker& ranker;
+    };
 
-    // request elements in found blocks
+    if ( abstract.dwMode == Abstract::None )
+    {
+      auto      format = context::formats::FormatBox( ftbuff );
+      auto      pfound = (PosSet*)alloca( blockSet.size() * sizeof(PosSet) );
+      size_t    nfound = 0;
+      auto      entPtr = entryBuf.data();
+      auto      entEnd = entryBuf.data() + entryBuf.size();
+      unsigned  lLimit;
+      double    weight;
+
+    // запросить распаковать все термы узла в массивы элементов { P, F }
+    // сформировать записи для тех, которые присутствуют
       for ( auto& next: blockSet )
         if ( next.docRefer.uEntity == getdoc )
-        {
-          auto  ucount = next.Unpack( entPtr, posPtr, entryBuf.data() + entryBuf.size() - entPtr, fmt, 0 );
-            entPtr += ucount;
-            posPtr += ucount;
-          if ( ucount != 0 )
-            ++nfound;
-        }
+          if ( (lLimit = next.Unpack( limits )) != 0 )
+            new( pfound + nfound++ ) PosSet{ next.entryPos, next.entryPos + lLimit, next.tmRanker };
 
     // check if single or multiple blocks
       if ( nfound == 0 )
         return abstract = {};
 
+    // check if only one list
       if ( nfound == 1 )
-        return abstract = { Abstract::Rich, 0, { entryBuf.data(), entPtr } };
-
-    // merge found tuples: sort and leave unique
-      std::sort( entryBuf.data(), entPtr, []( const EntrySet& lhs, const EntrySet& rhs )
-        {  return lhs.limits.uMin < rhs.limits.uMin;  } );
-
-      for ( auto srcPtr = entryBuf.data() + 1; srcPtr != entPtr; ++srcPtr )
       {
-        if ( srcPtr->limits.uMin != outPtr->limits.uMin ) *++outPtr = *srcPtr;
-          else
-        if ( srcPtr->weight > outPtr->weight )  *outPtr = *srcPtr;
+        auto&   ranker = pfound->ranker;
+
+        for ( auto beg = pfound->ptrbeg, end = pfound->ptrend; beg != end && entPtr < entEnd; ++beg )
+          if ( (weight = ranker( format.Get( beg->pos ), beg->fid )) > 0 )
+            MakeEntrySet( *entPtr++, { beg->pos, 0 /* term_id */ }, weight );
+
+        return entPtr != entryBuf.data() ? abstract = { Abstract::Rich, 0, { entryBuf.data(), entPtr } }
+          : abstract = {};
       }
-      return abstract = { Abstract::Rich, 0, { entryBuf.data(), outPtr + 1 } };
+
+    // list multiterm data selecting minimal entries
+      for ( lLimit = 0; entPtr != entEnd; )
+      {
+        auto      plower = decltype(pfound)( nullptr );
+        unsigned  ulower;
+
+        for ( auto next = pfound; next != pfound + nfound; ++next )
+        {
+          auto  clower = unsigned(-1);
+          bool  hasOne;
+
+        // пропустить все элементы, что уже добавлены в выдачу
+          while ( (hasOne = next->ptrbeg != next->ptrend) && (clower = next->ptrbeg->pos) < lLimit )
+            ++next->ptrbeg;
+
+          if ( hasOne && (plower == nullptr || clower < ulower) )
+          {
+            plower = next;
+            ulower = clower;
+          }
+        }
+
+        if ( plower == nullptr )
+          break;
+
+        if ( (weight = plower->ranker( format.Get( ulower ), plower->ptrbeg->fid )) > 0 )
+          MakeEntrySet( *entPtr++, { ulower, 0/* term_id */ }, weight );
+
+        ++plower->ptrbeg, lLimit = ulower + 1;
+      }
+      return abstract = { Abstract::Rich, 0, { entryBuf.data(), entPtr } };
     }
     return getdoc == entityId ? abstract : abstract = {};
   }
@@ -400,7 +435,7 @@ namespace queries {
     querySet.push_back( { query, unsigned(querySet.size()), range } );
 
     std::sort( querySet.begin(), querySet.end(), []( const SubQuery& s1, const SubQuery& s2 )
-      {  return s1.keyRange > s2.keyRange; } );
+      {  return s1.keyRange > s2.keyRange;  } );
 
     for ( auto& next : querySet )
       rgsumm += next.keyRange;
@@ -442,7 +477,7 @@ namespace queries {
   * Creates best ranked corteges of entries for '&' operator with no additional
   * checks for context except the checks provided by nested elements
   */
-  Abstract& RichQueryAll::GetChunks( uint32_t udocid, const mtc::span<const RankerTag>& format )
+  Abstract& RichQueryAll::GetChunks( uint32_t udocid, mtc::span<const char> format, const Limits& limits )
   {
     if ( abstract.dwMode != abstract.Rich )
     {
@@ -451,14 +486,14 @@ namespace queries {
 
     // request all the queries in '&' operator; not found queries force to return {}
       for ( auto& next: querySet )
-        if ( next.GetChunks( udocid, format ).entries.empty() )
+        if ( next.GetChunks( udocid, format, limits ).entries.empty() )
           return abstract = {};
 
     // list elements and select the best tuples for each possible compact entry;
     // shrink overlapping entries to suppress far and low-weight entries
       for ( bool hasAny = true; hasAny && outEnt != entryEnd && outPos != pointEnd; )
       {
-        auto  limits = Abstract::EntrySet::Limits{ unsigned(-1), 0 };
+        auto  limits = Limits{ unsigned(-1), 0 };
         auto  weight = 1.0;
         auto  outOrg = outPos;
 
@@ -467,9 +502,9 @@ namespace queries {
         {
           weight *= (1.0 -
             next.abstract.entries.pbeg->weight);
-          limits.uMin = std::min( limits.uMin,
+          limits.uLower = std::min( limits.uLower,
             next.abstract.entries.pbeg->limits.uMin );
-          limits.uMax = std::max( limits.uMax,
+          limits.uUpper = std::max( limits.uUpper,
             next.abstract.entries.pbeg->limits.uMax );
         }
 
@@ -477,7 +512,7 @@ namespace queries {
         weight = 1.0 - weight;
 
       // check if new or intersects with previously created element
-        if ( outEnt != entryBuf.data() && outEnt[-1].limits.uMax >= limits.uMin && outEnt[-1].weight < weight )
+        if ( outEnt != entryBuf.data() && outEnt[-1].limits.uMax >= limits.uLower && outEnt[-1].weight < weight )
           outOrg = outPos = (EntryPos*)(--outEnt)->spread.pbeg;
 
         for ( auto& next: querySet )
@@ -487,11 +522,11 @@ namespace queries {
             return abstract = { Abstract::Rich, 0, { entryBuf.data(), outEnt } };
 
         // skip lower elements
-          if ( next.abstract.entries.pbeg->limits.uMin == limits.uMin )
+          if ( next.abstract.entries.pbeg->limits.uMin == limits.uLower )
             hasAny &= ++next.abstract.entries.pbeg != next.abstract.entries.pend;
         }
 
-        *outEnt++ = { limits, weight, { outOrg, outPos } };
+        *outEnt++ = { { limits.uLower, { limits.uUpper, 0 } }, weight, { outOrg, outPos } };
       }
       abstract = { Abstract::Rich, 0, { entryBuf.data(), outEnt } };
     }
@@ -500,7 +535,7 @@ namespace queries {
 
   // RichQueryOrder implementation
 
-  Abstract& RichQueryOrder::GetChunks( uint32_t udocid, const mtc::span<const RankerTag>& format )
+  Abstract& RichQueryOrder::GetChunks( uint32_t udocid, mtc::span<const char> format, const Limits& limits )
   {
     if ( abstract.dwMode != abstract.Rich )
     {
@@ -509,7 +544,7 @@ namespace queries {
 
     // request all the queries in '&' operator; not found queries force to return {}
       for ( auto& next: querySet )
-        if ( next.GetChunks( udocid, format ).entries.empty() )
+        if ( next.GetChunks( udocid, format, limits ).entries.empty() )
           return abstract = {};
 
     // list elements and select the best tuples for each possible compact entry;
@@ -568,7 +603,7 @@ namespace queries {
             return abstract = { Abstract::Rich, 0, { entryBuf.data(), outEnt } };
         }
 
-        *outEnt++ = { { uLower, unsigned(uLower + querySet.size() - 1) }, 1.0 - weight,
+        *outEnt++ = { { uLower, unsigned(uLower + querySet.size() - 1), 0 }, 1.0 - weight,
           { outPos - querySet.size(), outPos } };
       }
       abstract = { Abstract::Rich, 0, { entryBuf.data(), outEnt } };
@@ -642,33 +677,36 @@ namespace queries {
     return entityId = ufound;
   }
 
-  Abstract& RichQueryFuzzy::GetChunks( uint32_t  udocid, const mtc::span<const RankerTag>& format )
+  Abstract& RichQueryFuzzy::GetChunks( uint32_t  udocid, mtc::span<const char> format, const Limits& limits )
   {
     if ( abstract.dwMode != abstract.Rich )
     {
       auto  outEnt = entryBuf.data();
       auto  outPos = pointBuf.data();
+      auto  loaded = size_t(0);
+      auto  quo_fl = double(0.0);
 
-    // request all the queries in 'fuzzy operator; by the request, quorum may be accessed
-    // with this query and at least one element is available and provides the quorum
-      for ( auto& next: querySet )
-        next.GetChunks( udocid, format );
+    // для начала загрузить потенциально дающие кворум подзапросы, чтобы избежать
+    // распаковки потенциально ненужных
+      for ( ; loaded != querySet.size() && quo_fl < quorum; ++loaded )
+        if ( querySet[loaded].GetChunks( udocid, format, limits ).dwMode == abstract.Rich )
+          quo_fl += querySet[loaded].keyRange;
 
     // list elements and select the best tuples for each possible compact entry;
     // shrink overlapping entries to suppress far and low-weight entries
       while ( outEnt != entryEnd && outPos != pointEnd )
       {
-        auto  pLower = (Abstract::Entries*){};
-        auto  uLower = unsigned(-1);
-        auto  scalar = double(0.0);
-        auto  en_len = double(0.0);
-        auto  quo_fl = double(0.0);
-        auto  outOrg = outPos;
-        auto  nquery = size_t(0);
-        int   despos;                 // desired position
+        auto      pLower = (Abstract::Entries*)nullptr;
+        unsigned  uLower;
+        unsigned  uUpper;
+        auto      scalar = double(0.0);
+        auto      en_len = double(0.0);
+        auto      outOrg = outPos;
+        auto      nquery = size_t(0);
+        int       despos;                 // desired position
 
         // search exact sequence of elements
-        for ( ; nquery != querySet.size() && quo_fl < quorum; ++nquery )
+        for ( quo_fl = 0.0; nquery != querySet.size() && quo_fl < quorum; ++nquery )
         {
           auto& rentry = querySet[nquery].abstract.entries;
 
@@ -678,10 +716,11 @@ namespace queries {
 
           quo_fl += querySet[nquery].keyRange;
 
-          if ( uLower == unsigned(-1) )
+          if ( pLower == nullptr )
           {
-            despos =
-            uLower = rentry.pbeg->limits.uMin - querySet[nquery].keyOrder;
+            uLower = rentry.pbeg->limits.uMin;
+            uUpper = rentry.pbeg->limits.uMax;
+            despos = uLower - querySet[nquery].keyOrder;
             pLower = &rentry;
             scalar = rentry.pbeg->weight;
             en_len = rentry.pbeg->weight * rentry.pbeg->weight;
@@ -693,19 +732,28 @@ namespace queries {
 
             if ( rentry.pbeg->limits.uMin < uLower )
               uLower = (pLower = &rentry)->pbeg->limits.uMin;
+            if ( rentry.pbeg->limits.uMax > uUpper )
+              uUpper = rentry.pbeg->limits.uMax;
             scalar += tmRank * fnDist;
             en_len += tmRank * tmRank;
           }
         }
 
       // check if element is found
-        if ( quo_fl < quorum || uLower == unsigned(-1) )
+        if ( quo_fl < quorum || pLower == nullptr )
           break;
 
-      // add other elements to possible quorum by quick movements
-        for ( ; nquery != querySet.size(); ++nquery )
+      // подгрузить оставшиеся элементы
+        for ( auto qLower = uLower > 30 ? uLower - 30 : 0; nquery != querySet.size(); ++nquery )
         {
           auto& rentry = querySet[nquery].abstract.entries;
+
+        // check if loaded
+          if ( nquery >= loaded )
+          {
+            querySet[nquery].GetChunks( udocid, format, { qLower, uUpper + 30 } );
+            loaded = nquery + 1;
+          }
 
         // обрабатываем только неисчерпанные
           if ( rentry.pbeg == rentry.pend )
@@ -717,6 +765,10 @@ namespace queries {
             for ( auto plimit = rentry.pend - 1; rentry.pbeg < plimit && rentry.pbeg[1].limits.uMin < uLower;
               ++rentry.pbeg ) (void)NULL;
           }
+
+        // проверить, не слишком ли далеко умотали
+          if ( rentry.pbeg[0].limits.uMax > uLower + 60 )
+            continue;
 
         // проверить возможные лимиты
           auto  fnDist = DistRange( int(rentry.pbeg->limits.uMin - despos - querySet[nquery].keyOrder) );
@@ -749,7 +801,7 @@ namespace queries {
               uUpper = std::max( uUpper, rquery.abstract.entries.pbeg->limits.uMax );
             }
 
-          *outEnt++ = { { uLower, uUpper }, weight, { outOrg, outPos } };
+          *outEnt++ = { { uLower, { uUpper, 0 } }, weight, { outOrg, outPos } };
         }
 
         ++pLower->pbeg;
@@ -780,7 +832,7 @@ namespace queries {
     return entityId = uFound;
   }
 
-  Abstract& RichQueryAny::GetChunks( uint32_t udocid, const mtc::span<const RankerTag>& format )
+  Abstract& RichQueryAny::GetChunks( uint32_t udocid, mtc::span<const char> format, const Limits& limits )
   {
     if ( abstract.dwMode != abstract.Rich )
     {
@@ -793,7 +845,7 @@ namespace queries {
 
     // request all the queries in '&' operator; not found queries force to return {}
       for ( auto& next: querySet )
-        if ( next.GetChunks( udocid, format ).entries.size() != 0 )
+        if ( next.GetChunks( udocid, format, limits ).entries.size() != 0 )
           selected[nFound++] = &next.abstract;
 
     // list elements and select the best tuples for each possible compact entry;
@@ -857,28 +909,45 @@ namespace queries {
 
   // RichQueryCover implementation
 
-  Abstract& RichQueryCover::GetChunks( uint32_t id, const mtc::span<const RankerTag>& ft )
+  Abstract& RichQueryCover::GetChunks( uint32_t id, mtc::span<const char> ft, const Limits& limits )
   {
     if ( id == entityId && abstract.dwMode != abstract.Rich )
     {
-      auto  subEnt = subQuery->GetChunks( id, ft );
-      auto  tagBeg = ft.data();
-      auto  tagEnd = ft.data() + ft.size();
+      auto  format = context::formats::FormatBox( ft );
+      auto  fmtbeg = format.begin();
+      auto  fmtend = format.end();
       auto  outPtr = entryBuf;
+      bool  hasAny;
 
-      for ( ; subEnt.entries.pbeg != subEnt.entries.pend && tagBeg != tagEnd; ++subEnt.entries.pbeg )
+    // skip until the first matching format
+      while ( (hasAny = fmtbeg != fmtend) && !mtc::bitset_get( matchSet, fmtbeg->format ) )
+        ++fmtbeg;
+
+    // request entry chunks
+      if ( hasAny )
       {
-        while ( tagBeg != tagEnd && tagBeg->uUpper < subEnt.entries.pbeg->limits.uMax && !mtc::bitset_get( matchSet, tagBeg->format ) )
-          ++tagBeg;
-        if ( tagBeg == tagEnd )
-          break;
-        while ( subEnt.entries.pbeg != subEnt.entries.pend && subEnt.entries.pbeg->limits.uMin < tagBeg->uLower )
-          ++subEnt.entries.pbeg;
-        if ( subEnt.entries.pbeg == subEnt.entries.pend )
-          break;
-        if ( tagBeg->uLower <= subEnt.entries.pbeg->limits.uMin
-          && tagBeg->uUpper >= subEnt.entries.pbeg->limits.uMax )
-            *outPtr++ = *subEnt.entries.pbeg;
+        auto  entset = subQuery->GetChunks( id, ft, { std::max( limits.uLower, fmtbeg->uLower ), limits.uUpper  } );
+
+        for ( ; entset.entries.pbeg != entset.entries.pend && fmtbeg != fmtend; ++entset.entries.pbeg )
+        {
+          while ( fmtbeg != fmtend && fmtbeg->uUpper < entset.entries.pbeg->limits.uMax && !mtc::bitset_get( matchSet, fmtbeg->format ) )
+            ++fmtbeg;
+
+          if ( fmtbeg == fmtend )
+            break;
+
+          while ( entset.entries.pbeg != entset.entries.pend && entset.entries.pbeg->limits.uMin < fmtbeg->uLower )
+            ++entset.entries.pbeg;
+
+          if ( entset.entries.pbeg == entset.entries.pend )
+            break;
+
+          if ( fmtbeg->uLower <= entset.entries.pbeg->limits.uMin
+            && fmtbeg->uUpper >= entset.entries.pbeg->limits.uMax )
+          {
+            *outPtr++ = *entset.entries.pbeg;
+          }
+        }
       }
 
       if ( outPtr != entryBuf )
@@ -889,13 +958,14 @@ namespace queries {
 
   // RichQueryMatch implementation
 
-  Abstract& RichQueryMatch::GetChunks( uint32_t id, const mtc::span<const RankerTag>& ft )
+  Abstract& RichQueryMatch::GetChunks( uint32_t id, mtc::span<const char> format, const Limits& limits )
   {
     if ( id == entityId && abstract.dwMode != abstract.Rich )
     {
-      auto  subEnt = subQuery->GetChunks( id, ft );
-      auto  tagBeg = ft.data();
-      auto  tagEnd = ft.data() + ft.size();
+      /*
+      auto  subEnt = subQuery->GetChunks( id, format, minpos );
+      auto  tagBeg = format.data();
+      auto  tagEnd = format.data() + format.size();
       auto  outPtr = entryBuf;
 
       for ( ; subEnt.entries.pbeg != subEnt.entries.pend && tagBeg != tagEnd; ++subEnt.entries.pbeg )
@@ -915,6 +985,7 @@ namespace queries {
 
       if ( outPtr != entryBuf )
         abstract = { Abstract::Rich, 0, { entryBuf, outPtr } };
+      */
     }
     return abstract;
   }
