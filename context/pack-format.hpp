@@ -110,8 +110,8 @@ namespace formats {
       uLower ),
       uUpper );
 
-    if ( format & 0x01 )  fmtptr = ::FetchFrom( srcptr, uCount );
-      else fmtptr = srcptr + (uCount = 0);
+    if ( format & 0x01 )  fmtptr = ::FetchFrom( srcptr, length );
+      else fmtptr = srcptr + (length = 0);
 
     uLower += origin;
     uUpper += uLower;
@@ -141,7 +141,7 @@ namespace formats {
 
       if ( curr.uUpper < pos )
       {
-        if ( (curr.fmtptr += curr.uCount) < curr.fmtend )
+        if ( (curr.fmtptr += curr.length) < curr.fmtend )
           curr.Set( curr.fmtptr, nlevel > 0 ? levels[nlevel - 1].uLower : 0 );
         else --nlevel;
       }
@@ -157,11 +157,11 @@ namespace formats {
       {
         selfmt = curr.format >> 1;
 
-        if ( curr.uCount != 0 )
+        if ( curr.length != 0 )
         {
-          levels[++nlevel].Set( curr.fmtptr, curr.uLower, curr.fmtptr + curr.uCount );
-          curr.fmtptr += curr.uCount;
-          curr.uCount = 0;
+          levels[++nlevel].Set( curr.fmtptr, curr.uLower, curr.fmtptr + curr.length );
+          curr.fmtptr += curr.length;
+          curr.length = 0;
         }
           else
         break;
@@ -214,11 +214,11 @@ namespace formats {
       {
         auto& ftcurr = levels[nlevel];
 
-        if ( ftcurr.uCount != 0 )
+        if ( ftcurr.length != 0 )
         {
-          levels[++nlevel].Set( ftcurr.fmtptr, ftcurr.uLower, ftcurr.fmtptr + ftcurr.uCount );
-            ftcurr.fmtptr += ftcurr.uCount;
-            ftcurr.uCount = 0;
+          levels[++nlevel].Set( ftcurr.fmtptr, ftcurr.uLower, ftcurr.fmtptr + ftcurr.length );
+            ftcurr.fmtptr += ftcurr.length;
+            ftcurr.length = 0;
           return format = { levels[nlevel].format >> 1, levels[nlevel].uLower,
             levels[nlevel].uUpper, 0 }, *this;
         }

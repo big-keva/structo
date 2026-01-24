@@ -1,9 +1,6 @@
 # if !defined( __structo_context_ranker_tag_hpp__ )
 # define __structo_context_ranker_tag_hpp__
-# include <moonycode/codes.h>
-# include <mtc/interfaces.h>
 # include <mtc/serialize.h>
-# include <stdexcept>
 # include <cstdint>
 
 namespace structo {
@@ -12,8 +9,9 @@ namespace context {
   struct RankerTag
   {
     unsigned    format;
-    uint32_t    uLower;     // start offset, bytes
-    uint32_t    uUpper;     // end offset, bytes
+    uint32_t    uLower;       // start offset, bytes
+    uint32_t    uUpper;       // end offset, bytes
+    unsigned    length = 0;   // count of covered tags, unused by default
 
   public:
     bool  operator==( const RankerTag& to ) const
