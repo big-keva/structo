@@ -15,6 +15,8 @@ namespace structo {
 namespace indexer {
 namespace layered {
 
+  constexpr long  max_merge_threads = 2;
+
   class ContentsIndex final: protected IndexLayers, public IContentsIndex
   {
     std::atomic_long  referenceCount = 0;
@@ -74,7 +76,7 @@ namespace layered {
     std::mutex                  evMutex;
     std::condition_variable     evEvent;
     std::thread                 monitor;
-    volatile bool               merging = false;
+    std::atomic_long            mergers = 0;
   };
 
   // ContentsIndex implementation
@@ -333,7 +335,7 @@ namespace layered {
                 {
                   mtc::interlocked( mtc::make_unique_lock( evMutex ), [&]()
                     {  evQueue.emplace_back( to, event );  } );
-                  merging = false;
+                  --mergers;
                     evEvent.notify_one();
                 } )
 //              .Set( canContinue )
@@ -351,7 +353,7 @@ namespace layered {
 
             layers.erase( limits.first + 1, limits.second );
 
-            merging = true;
+            ++mergers;
           }
         }
       }
@@ -387,7 +389,7 @@ namespace layered {
       return float(s_factor * l_factor * n_factor);
     };
 
-    if ( merging )
+    if ( mergers.load() >= max_merge_threads )
       return select;
 
     for ( auto& next: layers )
