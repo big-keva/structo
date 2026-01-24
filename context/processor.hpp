@@ -100,7 +100,12 @@ namespace context {
     image.markup.insert( image.markup.end(),
       input.GetMarkup().begin(), input.GetMarkup().end() );
 
-    return MapMarkup( { image.markup.data(), image.markup.size() }, image.GetTokens() ), image;
+    MapMarkup( { image.markup.data(), image.markup.size() }, image.GetTokens() );
+
+    if ( image.markup.size() > 1 )
+      image.markup.resize( std::unique( image.markup.begin(), image.markup.end() ) - image.markup.begin() );
+
+    return image;
   }
 
   template <class Allocator>
