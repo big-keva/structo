@@ -5,6 +5,40 @@
 namespace structo {
 namespace queries {
 
+  struct Limits
+  {
+    unsigned  uLower = 0;
+    unsigned  uUpper = (unsigned)-1;
+  };
+
+  struct Pos final
+  {
+    struct Any
+    {
+      bool operator()( unsigned ) const {  return true;  }
+    };
+
+    struct Min
+    {
+      unsigned  min;
+
+      bool operator()( unsigned pos ) const {  return pos >= min;  }
+    };
+
+    struct Max
+    {
+      unsigned  max;
+
+      bool operator()( unsigned pos ) const {  return pos <= max;  }
+    };
+  };
+
+  struct PosFid
+  {
+    unsigned  pos;
+    uint8_t   fid;
+  };
+
  /*
   * Специализация ::FetchFrom( S*, T& )
   */
@@ -36,11 +70,10 @@ namespace queries {
     return t = result, s;
   }
 
-  template <class RankEntry>
+  template <class MinPos, class MaxPos>
   auto  UnpackWordPos(
-    Abstract::EntrySet* output,
-    Abstract::EntryPos* appPtr,
-    size_t              maxLen, const std::string_view& source, const RankEntry& ranker, unsigned id ) -> unsigned
+    unsigned* output,
+    size_t    maxLen, const std::string_view& source, MinPos minpos, MaxPos maxpos ) -> size_t
   {
     auto  srcPtr( source.data() );
     auto  srcEnd( source.data() + source.size() );
@@ -48,28 +81,131 @@ namespace queries {
     auto  outPtr = output;
     auto  outEnd = outPtr + maxLen;
 
-    for ( ; srcPtr < srcEnd && outPtr != outEnd; ++uEntry )
+    for ( ; srcPtr < srcEnd && outPtr != outEnd && maxpos( uEntry ); ++uEntry )
+    {
+      unsigned  uOrder;
+
+      srcPtr = Fetch( srcPtr, uOrder );
+
+      if ( minpos( (uEntry = (uOrder += uEntry) ) ) )
+        *outPtr++ = uEntry;
+    }
+
+    return unsigned(outPtr - output);
+  }
+
+  template <class MinPos, class MaxPos>
+  auto  UnpackWordPos(
+    PosFid*   output,
+    size_t    maxLen, const std::string_view& source, MinPos minpos, MaxPos maxpos ) -> size_t
+  {
+    auto  srcPtr( source.data() );
+    auto  srcEnd( source.data() + source.size() );
+    auto  uEntry = 0U;
+    auto  outPtr = output;
+    auto  outEnd = outPtr + maxLen;
+
+    for ( ; srcPtr < srcEnd && outPtr != outEnd && maxpos( uEntry ); ++uEntry )
+    {
+      unsigned  uOrder;
+
+      srcPtr = Fetch( srcPtr, uOrder );
+
+      if ( minpos( (uEntry = (uOrder += uEntry) ) ) )
+        *outPtr++ = { uEntry, 0xff };
+    }
+
+    return unsigned(outPtr - output);
+  }
+
+  template <class RankEntry, class MinPos, class MaxPos>
+  auto  UnpackWordPos(
+    Abstract::EntrySet* output,
+    size_t              maxLen, const std::string_view& source, const RankEntry& ranker,
+    MinPos              minpos,
+    MaxPos              maxpos, unsigned id ) -> unsigned
+  {
+    auto  srcPtr( source.data() );
+    auto  srcEnd( source.data() + source.size() );
+    auto  uEntry = unsigned(0);
+    auto  outPtr = output;
+    auto  outEnd = outPtr + maxLen;
+
+    for ( ; srcPtr < srcEnd && outPtr != outEnd && maxpos( uEntry ); ++uEntry )
     {
       unsigned  uOrder;
       double    weight;
 
       srcPtr = Fetch( srcPtr, uOrder );
 
-      if ( (weight = ranker( uEntry = (uOrder += uEntry), 0xff )) < 0 )
-        continue;
-
-      *outPtr++ = { { uOrder, uOrder }, weight, { appPtr, appPtr + 1 } };
-      *appPtr++ = { id, uEntry };
+      if ( minpos( (uEntry = (uOrder += uEntry) ) ) && (weight = ranker( uEntry, 0xff )) > 0 )
+        MakeEntrySet( *outPtr++, { uEntry, id }, weight );
     }
 
     return unsigned(outPtr - output);
   }
 
-  template <class RankEntry>
+  template <class MinPos, class MaxPos>
+  auto  UnpackWordFid(
+    PosFid* output,
+    size_t  maxLen, const std::string_view& source, MinPos minpos, MaxPos maxpos ) -> unsigned
+  {
+    auto    srcPtr( source.data() );
+    auto    srcEnd( source.data() + source.size() );
+    auto    uEntry = unsigned(0);
+    auto    outPtr = output;
+    auto    outEnd = outPtr + maxLen;
+    uint8_t getFid;
+
+    if ( (*srcPtr & 0x01) != 0 )
+    {
+      unsigned ctlFid;
+
+      srcPtr = Fetch( Fetch( srcPtr, ctlFid ), uEntry );
+      getFid = ctlFid >> 2;
+
+      for ( ; outPtr != outEnd && maxpos( uEntry ); ++uEntry )
+      {
+        if ( minpos( uEntry ) )
+          *outPtr++ = { uEntry, getFid };
+
+        if ( srcPtr == srcEnd )
+          break;
+
+        srcPtr = Fetch( srcPtr, ctlFid );
+          uEntry += ctlFid;
+      }
+    }
+      else
+    {
+      srcPtr = Fetch( srcPtr, uEntry );
+      getFid = *srcPtr++;
+
+      for ( uEntry >>= 2; outPtr != outEnd && maxpos( uEntry ); ++uEntry )
+      {
+        unsigned  uOrder;
+
+        if ( minpos( uEntry ) )
+          *outPtr++ = { uEntry, getFid };
+
+        if ( srcPtr == srcEnd )
+          break;
+
+        srcPtr = Fetch( srcPtr, uOrder );
+          getFid = *srcPtr++;
+          uEntry += uOrder;
+      }
+    }
+
+    return unsigned(outPtr - output);
+  }
+
+  template <class RankEntry, class MinPos, class MaxPos>
   auto  UnpackWordFid(
     Abstract::EntrySet* output,
-    Abstract::EntryPos* appPtr,
-    size_t              maxLen, const std::string_view& source, const RankEntry& ranker, unsigned id ) -> unsigned
+    size_t              maxLen, const std::string_view& source, const RankEntry& ranker,
+    MinPos              minpos,
+    MaxPos              maxpos, unsigned id ) -> unsigned
   {
     auto    srcPtr( source.data() );
     auto    srcEnd( source.data() + source.size() );
@@ -84,62 +220,132 @@ namespace queries {
       unsigned ctlFid;
 
       srcPtr = Fetch( Fetch( srcPtr, ctlFid ), uEntry );
+        getFid = ctlFid >> 2;
 
-      for ( getFid = ctlFid >> 2; outPtr != outEnd; ++uEntry )
+      for ( ; outPtr != outEnd && maxpos( uEntry ); ++uEntry )
       {
-        if ( (weight = ranker( uEntry, getFid )) > 0 )
-        {
-          *outPtr++ = { { uEntry, uEntry }, weight, { appPtr, appPtr + 1 } };
-          *appPtr++ = { id, uEntry };
-        }
+        if ( minpos( uEntry ) && (weight = ranker( uEntry, getFid )) > 0 )
+          MakeEntrySet( *outPtr++, { uEntry, id }, weight );
 
-        if ( srcPtr != srcEnd )
-        {
-          srcPtr = Fetch( srcPtr, ctlFid );
+        if ( srcPtr == srcEnd )
+          break;
+
+        srcPtr = Fetch( srcPtr, ctlFid );
           uEntry += ctlFid;
-        } else break;
       }
     }
       else
     {
-      srcPtr = FetchFrom( srcPtr, uEntry );
+      srcPtr = Fetch( srcPtr, uEntry );
         getFid = *srcPtr++;
 
-      for ( uEntry >>= 2; outPtr != outEnd; ++uEntry )
+      for ( uEntry >>= 2; outPtr != outEnd && maxpos( uEntry ); ++uEntry )
       {
         unsigned  uOrder;
 
-        if ( (weight = ranker( uEntry, getFid )) > 0 )
-        {
-          *outPtr++ = { { uEntry, uEntry }, weight, { appPtr, appPtr + 1 } };
-          *appPtr++ = { id, uEntry };
-        }
-        if ( srcPtr != srcEnd )
-        {
-          srcPtr = Fetch( srcPtr, uOrder );
-            getFid = *srcPtr++;
-          uEntry += uOrder;
-        } else break;
+        if ( minpos( uEntry ) && (weight = ranker( uEntry, getFid )) > 0 )
+          MakeEntrySet( *outPtr++, { uEntry, id }, weight );
+
+        if ( srcPtr == srcEnd )
+          break;
+
+        srcPtr = Fetch( srcPtr, uOrder );
+        getFid = *srcPtr++;
+        uEntry += uOrder;
       }
     }
 
     return unsigned(outPtr - output);
   }
 
-  template <size_t N, size_t M, class RankEntry>
+  template <size_t N>
   auto  UnpackWordPos(
-    Abstract::EntrySet (&output)[N],
-    Abstract::EntryPos (&appear)[M], const std::string_view& source, const RankEntry& ranker, unsigned id ) -> unsigned
+    unsigned  (&output)[N], const std::string_view& source, const Limits& limits ) -> unsigned
   {
-    return UnpackWordPos( output, appear, N, source, ranker, id );
+    if ( limits.uLower != 0 )
+    {
+      return limits.uUpper != (unsigned)-1 ?
+        UnpackWordPos( output, N, source, Pos::Min{ limits.uLower }, Pos::Max{ limits.uUpper } ) :
+        UnpackWordPos( output, N, source, Pos::Min{ limits.uLower }, Pos::Any{} );
+    }
+    return limits.uUpper != (unsigned)-1 ?
+      UnpackWordPos( output, N, source, Pos::Any{}, Pos::Max{ limits.uUpper } ) :
+      UnpackWordPos( output, N, source, Pos::Any{}, Pos::Any{} );
   }
 
-  template <size_t N, size_t M, class RankEntry>
-  auto  UnpackWordFid(
-    Abstract::EntrySet (&output)[N],
-    Abstract::EntryPos (&appear)[M], const std::string_view& source, const RankEntry& ranker, unsigned id ) -> unsigned
+  template <size_t N>
+  auto  UnpackWordPos(
+    PosFid  (&output)[N], const std::string_view& source, const Limits& limits ) -> unsigned
   {
-    return UnpackWordFid( output, appear, N, source, ranker, id );
+    if ( limits.uLower != 0 )
+    {
+      return limits.uUpper != (unsigned)-1 ?
+        UnpackWordPos( output, N, source, Pos::Min{ limits.uLower }, Pos::Max{ limits.uUpper } ) :
+        UnpackWordPos( output, N, source, Pos::Min{ limits.uLower }, Pos::Any{} );
+    }
+    return limits.uUpper != (unsigned)-1 ?
+      UnpackWordPos( output, N, source, Pos::Any{}, Pos::Max{ limits.uUpper } ) :
+      UnpackWordPos( output, N, source, Pos::Any{}, Pos::Any{} );
+  }
+
+  template <size_t N, class RankEntry>
+  auto  UnpackWordPos(
+    Abstract::EntrySet (&output)[N], const std::string_view& source, const RankEntry& ranker, const Limits& limits, unsigned id ) -> unsigned
+  {
+    if ( limits.uLower != 0 )
+    {
+      return limits.uUpper != (unsigned)-1 ?
+        UnpackWordPos( output, N, source, ranker, Pos::Min{ limits.uLower }, Pos::Max{ limits.uUpper }, id ) :
+        UnpackWordPos( output, N, source, ranker, Pos::Min{ limits.uLower }, Pos::Any{}, id );
+    }
+    return limits.uUpper != (unsigned)-1 ?
+      UnpackWordPos( output, N, source, ranker, Pos::Any{}, Pos::Max{ limits.uUpper }, id ) :
+      UnpackWordPos( output, N, source, ranker, Pos::Any{}, Pos::Any{}, id );
+  }
+
+  inline
+  auto  UnpackWordFid(
+    PosFid* output, size_t  maxlen, const std::string_view& source, const Limits& limits ) -> unsigned
+  {
+    if ( limits.uLower != 0 )
+    {
+      return limits.uUpper != (unsigned)-1 ?
+        UnpackWordFid( output, maxlen, source, Pos::Min{ limits.uLower }, Pos::Max{ limits.uUpper } ) :
+        UnpackWordFid( output, maxlen, source, Pos::Min{ limits.uLower }, Pos::Any{} );
+    }
+    return limits.uUpper != (unsigned)-1 ?
+      UnpackWordFid( output, maxlen, source, Pos::Any{}, Pos::Max{ limits.uUpper } ) :
+      UnpackWordFid( output, maxlen, source, Pos::Any{}, Pos::Any{} );
+  }
+
+  template <size_t N>
+  auto  UnpackWordFid(
+    PosFid  (&output)[N], const std::string_view& source, const Limits& limits ) -> unsigned
+  {
+    return UnpackWordFid( output, N, source, limits );
+  }
+
+  template <class RankEntry>
+  auto  UnpackWordFid(
+    Abstract::EntrySet* output,
+    size_t              maxlen, const std::string_view& source, const RankEntry& ranker, const Limits& limits, unsigned id ) -> unsigned
+  {
+    if ( limits.uLower != 0 )
+    {
+      return limits.uUpper != (unsigned)-1 ?
+        UnpackWordFid( output, maxlen, source, ranker, Pos::Min{ limits.uLower }, Pos::Max{ limits.uUpper }, id ) :
+        UnpackWordFid( output, maxlen, source, ranker, Pos::Min{ limits.uLower }, Pos::Any{}, id );
+    }
+    return limits.uUpper != (unsigned)-1 ?
+      UnpackWordFid( output, maxlen, source, ranker, Pos::Any{}, Pos::Max{ limits.uUpper }, id ) :
+      UnpackWordFid( output, maxlen, source, ranker, Pos::Any{}, Pos::Any{}, id );
+  }
+
+  template <size_t N, class RankEntry>
+  auto  UnpackWordFid(
+    Abstract::EntrySet (&output)[N], const std::string_view& source, const RankEntry& ranker, const Limits& limits, unsigned id ) -> unsigned
+  {
+    return UnpackWordFid( output, N, source, ranker, limits, id );
   }
 
 }}
