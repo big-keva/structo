@@ -1,13 +1,10 @@
 # if !defined( __structo_src_queries_rich_rankers_hpp__ )
 # define __structo_src_queries_rich_rankers_hpp__
-# include "../../context/pack-format.hpp"
 # include "field-set.hpp"
 # include <vector>
 
 namespace structo {
 namespace queries {
-
-  class RichRanker;
 
   class TermRanker
   {
@@ -25,39 +22,6 @@ namespace queries {
 
   // rank
     double  operator()( unsigned tag, uint8_t fid ) const;
-    auto    GetRanker( const mtc::span<const context::RankerTag>& ) const -> RichRanker;
-  };
-
-  class RichRanker
-  {
-    friend class TermRanker;
-
-    const TermRanker&                 ranker;
-    mutable const context::RankerTag* fmttop;
-    mutable const context::RankerTag* fmtend;
-
-  protected:
-    RichRanker( const TermRanker& r, const mtc::span<const context::RankerTag>& f ):
-      ranker( r ),
-      fmttop( f.data() ),
-      fmtend( f.data() + f.size() ) {}
-
-  public:
-    double  operator()( unsigned pos, uint8_t fid ) const
-    {
-      auto  selfmt = unsigned(-1);
-
-      while ( fmttop != fmtend && fmttop->uUpper < pos )
-        ++fmttop;
-
-      if ( fmttop == fmtend )
-        return ranker( unsigned(-1), fid );
-
-      for ( selfmt = fmttop->format; fmttop + 1 != fmtend && fmttop[1].uLower <= pos && fmttop[1].uUpper >= pos; )
-        selfmt = (++fmttop)->format;
-
-      return ranker( selfmt, fid );
-    }
   };
 
   // TermRanker inline implementation
@@ -99,11 +63,6 @@ namespace queries {
     if ( tag < tagOffset.size() && (tag = tagOffset[tag]) != unsigned(-1) )
       return fidWeight[tag + fid];
     return 0.2;
-  }
-
-  inline  auto  TermRanker::GetRanker( const mtc::span<const context::RankerTag>& fmt ) const -> RichRanker
-  {
-    return { *this, fmt };
   }
 
 }}
