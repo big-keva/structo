@@ -14,7 +14,8 @@ namespace context {
     std::shared_ptr<impl> data;
 
     friend  FieldManager    LoadFields( const mtc::array_zmap& );     // throws invalid_argument
-    friend  mtc::array_zmap SaveFields( const FieldManager& fields );
+    friend  FieldManager    JoinFields( const FieldManager&, const FieldManager& );     // throws invalid_argument
+    friend  mtc::array_zmap SaveFields( const FieldManager& );
 
   public:
     auto  Add( const std::string_view& )       ->       FieldOptions* override;
@@ -24,6 +25,7 @@ namespace context {
 
   auto  LoadFields( const mtc::zmap&, const mtc::zmap::key& ) -> FieldManager;     // throws invalid_argument
   auto  LoadFields( const mtc::array_zmap& ) -> FieldManager;     // throws invalid_argument
+  auto  JoinFields( const FieldManager&, const FieldManager& ) -> FieldManager;     // throws invalid_argument
   auto  SaveFields( const FieldManager& ) -> mtc::array_zmap;
 
 }}
