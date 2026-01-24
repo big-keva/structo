@@ -1,10 +1,9 @@
 # include "../../context/fields-man.hpp"
-
-#include <compat.hpp>
 # include <mtc/wcsstr.h>
 # include <unordered_map>
 # include <shared_mutex>
-#include <mtc/recursive_shared_mutex.hpp>
+# include <compat.hpp>
+# include <mtc/recursive_shared_mutex.hpp>
 
 namespace structo {
 namespace context {
@@ -25,6 +24,11 @@ namespace context {
   {
     std::string namePlace;
 
+    OptionsValue( const OptionsValue& s ): FieldOptions( s ),
+      namePlace( s.namePlace )
+    {
+      name = namePlace;
+    }
     OptionsValue( unsigned fdId, const std::string& fdSz ): namePlace( fdSz )
     {
       id = fdId;
@@ -65,7 +69,7 @@ namespace context {
 
         pfound =
           data->strmap.insert( { fdName,
-          data->intmap.insert( { nextId, pfield } ).first->second} ).first;
+          data->intmap.insert( { nextId, pfield } ).first->second } ).first;
       }
     }
 
@@ -179,13 +183,22 @@ namespace context {
     }
   }
 
+  bool  IsString( const std::string& s, std::initializer_list<const char*> l )
+  {
+    for ( auto next: l )
+      if ( strcasecmp( s.c_str(), next ) == 0 )
+        return true;
+    return false;
+  }
+
  /*
   * options format:
   *   "key: value[; key: value[...]]"
   *
   * keys:           values:
-  *   word-break      on, true, yes | off, false, no
-  *   contents:       text, keys, int ...
+  *   word-break    on, true, yes | off, false, no
+  *   index         text, keys, int ...
+  *   quote         on, true, yes | off, false, no | always, force, forced
   */
   void  GetOptions( FieldOptions& opts, const std::string& options )
   {
@@ -221,15 +234,47 @@ namespace context {
 
       if ( keystr == "word-break" )
       {
-        if ( valstr == "true" || valstr == "on" || valstr == "yes" )  opts.options &= FieldOptions::ofNoBreakWords;
+        opts.defined |= FieldOptions::defined_NoBreakWords;
+
+        if ( IsString( valstr, { "true", "on", "yes" } ) )  opts.options &= FieldOptions::ofNoBreakWords;
           else
-        if ( valstr == "false" || valstr == "off" || valstr == "no" ) opts.options |= FieldOptions::ofNoBreakWords;
+        if ( IsString( valstr, { "false", "off", "no" } ) ) opts.options |= FieldOptions::ofNoBreakWords;
           else
         throw std::invalid_argument( mtc::strprintf( "invalid field 'word-break' option '%s'", valstr.c_str() ) );
       }
         else
-      if ( keystr == "contents" )
+      if ( keystr == "index" )
       {
+        opts.defined |= FieldOptions::defined_DisableIndex;
+
+        if ( IsString( valstr, { "true", "on", "yes" } ) )  opts.options &= FieldOptions::ofDisableIndex;
+          else
+        if ( IsString( valstr, { "false", "off", "no" } ) ) opts.options |= FieldOptions::ofDisableIndex;
+          else
+        throw std::invalid_argument( mtc::strprintf( "invalid field 'index' option '%s'", valstr.c_str() ) );
+      }
+        else
+      if ( keystr == "quote" )
+      {
+        opts.defined |= FieldOptions::defined_QuoteOptions;
+
+        if ( IsString( valstr, { "true", "on", "yes" } ) )
+        {
+          opts.options &= ~(FieldOptions::ofDisableQuote | FieldOptions::ofEnforceQuote);
+        }
+          else
+        if ( IsString( valstr, { "false", "off", "no", "never" } ) )
+        {
+          opts.options = (opts.options & ~FieldOptions::ofEnforceQuote)
+            | FieldOptions::ofDisableQuote;
+        }
+          else
+        if ( IsString( valstr, { "always", "force", "forced" } ) )
+        {
+          opts.options = (opts.options & ~FieldOptions::ofDisableQuote)
+            | FieldOptions::ofEnforceQuote;
+        }
+        throw std::invalid_argument( mtc::strprintf( "invalid field 'index' option '%s'", valstr.c_str() ) );
       }
         else
       throw std::invalid_argument( mtc::strprintf( "unknown field option '%s'", keystr.c_str() ) );
@@ -246,8 +291,11 @@ namespace context {
     {
       if ( next.first == "indents" )
       {
-        if ( next.second.get_type() == mtc::zval::z_zmap )  GetIndents( opts, *next.second.get_zmap() );
-          else throw std::invalid_argument( "field 'indents' has to be structure" );
+        if ( next.second.get_type() != mtc::zval::z_zmap )
+          throw std::invalid_argument( "field 'indents' has to be structure" );
+
+        GetIndents( opts, *next.second.get_zmap() );
+        opts.defined |= FieldOptions::defined_indents;
       }
         else
       if ( next.first == "options" )
@@ -272,6 +320,16 @@ namespace context {
           throw std::invalid_argument( mtc::strprintf( "invalid field '%s' order, 'id' mismatch @" __FILE__ ":" LINE_STRING,
             field.get_charstr( "name", "???" ).c_str() ) );
         }
+      }
+        else
+      if ( next.first == "weight" )
+      {
+        if ( (opts.weight = next.second.cast_to_double( -1 )) < 0.0 )
+        {
+          throw std::invalid_argument( mtc::strprintf( "invalid field '%s' weight value '%s' @" __FILE__ ":" LINE_STRING,
+            field.get_charstr( "name", "???" ).c_str(), next.second.to_string().c_str() ) );
+        }
+        opts.defined |= FieldOptions::defined_weight;
       }
         else
       if ( next.first != "name" )
@@ -306,6 +364,64 @@ namespace context {
       ParseField( *fields.Add( *name ), next );
     }
     return fields;
+  }
+
+  auto  JoinFields( const FieldManager& cur, const FieldManager& add ) -> FieldManager
+  {
+    auto  out = FieldManager();
+
+  // ensure fields created
+    if ( cur.data != nullptr || add.data != nullptr )
+      out.data = std::make_shared<FieldManager::impl>();
+
+  // copy source fields
+    if ( cur.data != nullptr )
+      for ( auto& next: cur.data->strmap )
+      {
+        auto  pfield = std::make_shared<OptionsValue>( *next.second.get() );
+
+        out.data->strmap.insert( { next.first,
+        out.data->intmap.insert( { next.second->id, pfield } ).first->second } );
+      }
+
+  // merge added fields
+    if ( add.data != nullptr )
+      for ( auto& next: add.data->strmap )
+      {
+        auto  pfound = out.data->strmap.find( next.first );
+
+      // for existing fields, check conflicts and patch values
+        if ( pfound != out.data->strmap.end() )
+        {
+          if ( next.second->defined & FieldOptions::defined_QuoteOptions )
+          {
+            constexpr unsigned QuoteOptions = FieldOptions::ofDisableQuote | FieldOptions::ofEnforceQuote;
+
+            (pfound->second->options &= ~QuoteOptions)
+              |= (next.second->options & QuoteOptions);
+          }
+          if ( next.second->defined & FieldOptions::defined_DisableIndex )
+          {
+            (pfound->second->options &= ~FieldOptions::ofDisableIndex)
+              |= (next.second->options & FieldOptions::ofDisableIndex);
+          }
+          if ( next.second->defined & FieldOptions::defined_indents )
+            pfound->second->indents = next.second->indents;
+          if ( next.second->defined & FieldOptions::defined_weight )
+            pfound->second->weight = next.second->weight;
+        }
+          else
+      // for non-existing fields, just add new field to the table
+        {
+          auto  pfield = std::make_shared<OptionsValue>( *next.second.get() );
+            pfield->id = out.data->strmap.size();
+
+          out.data->strmap.insert( { next.first,
+          out.data->intmap.insert( { pfield->id, pfield } ).first->second } );
+        }
+      }
+
+    return out;
   }
 
   auto  SaveFields( const FieldManager& fields ) -> mtc::array_zmap

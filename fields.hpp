@@ -21,10 +21,24 @@ namespace structo {
       ofEnforceQuote = 0x00040000
     };
 
+    enum: unsigned
+    {
+      defined_NoBreakWords = 0x00000001,
+      defined_KeywordsOnly = 0x00000002,
+      defined_DisableIndex = 0x00000004,
+
+      defined_QuoteOptions = 0x00000006,
+
+      defined_weight       = 0x00010000,
+      defined_indents      = 0x00020000,
+      defined_id           = 0x00040000
+    };
+
     unsigned          id;
     std::string_view  name;
     double            weight = 1.0;
     unsigned          options = 0;
+    unsigned          defined = 0;
     indentation       indents = default_indents;
 
     static constexpr indentation default_indents = { { 2, 8 }, { 2, 8 } };
