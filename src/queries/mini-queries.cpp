@@ -42,8 +42,8 @@ namespace queries {
       bm25Term{ 0, idf, 0, 0 } {}
 
   // overridables
-    uint32_t  SearchDoc( uint32_t ) override;
-    Abstract  GetTuples( uint32_t ) override;
+    uint32_t        SearchDoc( uint32_t ) override;
+    const Abstract& GetTuples( uint32_t ) override;
 
   protected:
     mtc::api<IEntities> entBlock;
@@ -80,8 +80,8 @@ namespace queries {
     MiniMultiTerm( std::vector<std::pair<mtc::api<IEntities>, double>>& );
 
   // IQuery overridables
-    uint32_t  SearchDoc( uint32_t ) override;
-    Abstract  GetTuples( uint32_t ) override;
+    uint32_t        SearchDoc( uint32_t ) override;
+    const Abstract& GetTuples( uint32_t ) override;
 
   protected:
     std::vector<KeyBlock>           blockSet;
@@ -132,7 +132,7 @@ namespace queries {
 
     // overridables
     uint32_t  SearchDoc( uint32_t id ) override  {  return StrictSearch( id );  }
-    Abstract  GetTuples( uint32_t id ) override;
+    auto      GetTuples( uint32_t id ) -> const Abstract& override;
 
   };
 
@@ -148,7 +148,7 @@ namespace queries {
 
     // overridables
     uint32_t  SearchDoc( uint32_t ) override;
-    Abstract  GetTuples( uint32_t ) override;
+    auto      GetTuples( uint32_t ) -> const Abstract& override;
 
   protected:
     double  quorum;
@@ -163,7 +163,7 @@ namespace queries {
 
     // overridables
     uint32_t  SearchDoc( uint32_t ) override;
-    Abstract  GetTuples( uint32_t ) override;
+    auto      GetTuples( uint32_t ) -> const Abstract& override;
 
   protected:
     std::vector<Abstract*>  selected;
@@ -189,7 +189,7 @@ namespace queries {
   * For changed document id, unpack && return the entries and entry sets for given
   * format set
   */
-  Abstract  MiniQueryTerm::GetTuples( uint32_t tofind )
+  auto  MiniQueryTerm::GetTuples( uint32_t tofind ) -> const Abstract&
   {
     if ( docRefer.uEntity == tofind && abstract.dwMode == Abstract::None )
       SetAbstract( &bm25Term, 1 + &bm25Term );
@@ -225,7 +225,7 @@ namespace queries {
     return abstract = {}, entityId = uFound;
   }
 
-  Abstract  MiniMultiTerm::GetTuples( uint32_t getdoc )
+  auto  MiniMultiTerm::GetTuples( uint32_t getdoc ) -> const Abstract&
   {
     if ( getdoc == entityId && abstract.dwMode == Abstract::None )
     {
@@ -290,7 +290,7 @@ namespace queries {
   *
   * Fill abstract with term idf's for all the terms meet in subqueries
   */
-  Abstract  MiniQueryAll::GetTuples( uint32_t udocid )
+  auto  MiniQueryAll::GetTuples( uint32_t udocid ) -> const Abstract&
   {
     if ( abstract.dwMode == abstract.None )
     {
@@ -349,7 +349,7 @@ namespace queries {
     }
   }
 
-  Abstract  MiniQueryFuzzy::GetTuples( uint32_t udocid )
+  auto  MiniQueryFuzzy::GetTuples( uint32_t udocid ) -> const Abstract&
   {
     if ( abstract.dwMode == abstract.None )
     {
@@ -388,7 +388,7 @@ namespace queries {
     return entityId = uFound;
   }
 
-  Abstract  MiniQueryAny::GetTuples( uint32_t udocid )
+  auto  MiniQueryAny::GetTuples( uint32_t udocid ) -> const Abstract&
   {
     if ( abstract.dwMode == abstract.None )
     {
