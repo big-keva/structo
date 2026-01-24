@@ -2,12 +2,6 @@
 # include "../../contents.hpp"
 # include "../../compat.hpp"
 
-using SerialFn = std::function<void(const void*, size_t)>;
-
-template <> inline
-SerialFn* Serialize( SerialFn* f, const void* p, size_t l )
-  {  return f != nullptr ? (*f)( p, l ), f : nullptr;  }
-
 template <> inline
 std::vector<char>* Serialize( std::vector<char>* o, const void* p, size_t l )
   {  return o != nullptr ? o->insert( o->end(), (const char*)p, l + (const char*)p ), o : nullptr;  }
@@ -34,6 +28,7 @@ namespace formats {
     auto  GetBufLen() const -> size_t;
     template <class O>
     auto  Serialize( O* ) const -> O*;
+
   };
 
   // Pack formats funcs
@@ -59,10 +54,6 @@ namespace formats {
     compressor.Serialize( o );
   }
 
-  void  Pack( std::function<void(const void*, size_t)> fn, const mtc::span<const RankerTag>& in )
-    {  return Pack<SerialFn>( &fn, in );  }
-  void  Pack( std::function<void(const void*, size_t)> fn, const mtc::span<const MarkupTag>& in, FieldHandler& fh )
-    {  return Pack<SerialFn>( &fn, in, fh );  }
   void  Pack( mtc::IByteStream* ps, const mtc::span<const RankerTag>& in )
     {  return Pack<mtc::IByteStream>( ps, in );  }
   void  Pack( mtc::IByteStream* ps, const mtc::span<const DeliriX::MarkupTag>& in, FieldHandler& fh )
@@ -82,33 +73,27 @@ namespace formats {
     return Pack( &out, in, fh ), out;
   }
 
-
   // Unpack formats family
 
   template <class FnFormat>
   void  Unpack( FnFormat  fAdd, const char*& pbeg, const char* pend, unsigned base = 0 )
   {
-    int   size;
+    unsigned  format;
+    unsigned  ulower;
+    unsigned  uupper;
 
-    if ( (pbeg = ::FetchFrom( pbeg, size )) == nullptr || pbeg == pend )
-      return;
-
-    while ( size-- > 0 )
+    if ( (pbeg = ::FetchFrom( ::FetchFrom( ::FetchFrom( pbeg,
+      format ),
+      ulower ),
+      uupper )) != nullptr )
     {
-      unsigned  format;
-      unsigned  ulower;
-      unsigned  uupper;
-
-      if ( (pbeg = ::FetchFrom( ::FetchFrom( ::FetchFrom( pbeg,
-        format ),
-        ulower ),
-        uupper )) == nullptr )
-        break;
+      unsigned  sublen;
 
       fAdd( { format >> 1, ulower + base, ulower + base + uupper } );
 
-      if ( format & 1 )
-        Unpack( fAdd, pbeg, pend, ulower + base );
+      if ( (format & 1) != 0 && (pbeg = ::FetchFrom( pbeg, sublen )) != nullptr )
+        for ( auto plim = std::min( pbeg + sublen, pend ); pbeg != plim; )
+          /*pbeg = */Unpack( fAdd, pbeg, plim, ulower + base );
     }
   }
 
@@ -192,7 +177,7 @@ namespace formats {
   template <class Allocator>
   size_t  Compressor<Allocator>::GetBufLen() const
   {
-    auto  buflen = ::GetBufLen( this->size() );
+    auto  buflen = size_t(0);
 
     for ( auto& next: *this )
     {
@@ -206,7 +191,11 @@ namespace formats {
         ::GetBufLen( upDiff );
 
       if ( next.size() != 0 )
-        buflen += next.GetBufLen();
+      {
+        auto  sublen = next.GetBufLen();
+
+        buflen += sublen + ::GetBufLen( sublen );
+      }
     }
 
     return buflen;
@@ -216,8 +205,6 @@ namespace formats {
   template <class O>
   O*  Compressor<Allocator>::Serialize( O* o ) const
   {
-    o = ::Serialize( o, this->size() );
-
     for ( auto& next: *this )
     {
       auto  loDiff = next.uLower - uLower;
@@ -230,7 +217,7 @@ namespace formats {
         upDiff );
 
       if ( next.size() != 0 )
-        o = next.Serialize( o );
+        o = next.Serialize( ::Serialize( o, next.GetBufLen() ) );
     }
 
     return o;
