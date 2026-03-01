@@ -3,6 +3,7 @@
 # include "../../indexer/dynamic-contents.hpp"
 # include "../../exceptions.hpp"
 # include "../../compat.hpp"
+# include "override-entities.hpp"
 # include "commit-contents.hpp"
 # include "merger-contents.hpp"
 # include "object-holders.hpp"
@@ -24,6 +25,9 @@ namespace layered {
     long  Attach() override {  return ++referenceCount;  }
     long  Detach() override;
 
+    class EntityIteratorByIx;
+    class EntityIteratorById;
+
   public:
     ContentsIndex( const mtc::api<IContentsIndex>* indices, size_t count );
     ContentsIndex( const mtc::api<IStorage>&, const dynamic::Settings& );
@@ -35,7 +39,7 @@ namespace layered {
     auto  GetEntity( uint32_t ) const -> mtc::api<const IEntity> override;
 
     bool  DelEntity( EntityId ) override;
-    auto  SetEntity( EntityId, mtc::api<const IContents>,
+    auto  SetEntity( EntityId, const mtc::span<const EntryView>&,
       const std::string_view&, const std::string_view& ) -> mtc::api<const IEntity> override;
     auto  SetExtras( EntityId, const std::string_view& ) -> mtc::api<const IEntity> override;
 
@@ -43,10 +47,8 @@ namespace layered {
     auto  GetKeyBlock( const std::string_view& ) const -> mtc::api<IEntities> override;
     auto  GetKeyStats( const std::string_view& ) const -> BlockInfo override;
 
-    auto  ListEntities( EntityId ) -> mtc::api<IEntitiesList> override
-      {  throw std::runtime_error( "not implemented @" __FILE__ ":" LINE_STRING );  }
-    auto  ListEntities( uint32_t ) -> mtc::api<IEntitiesList> override
-      {  throw std::runtime_error( "not implemented @" __FILE__ ":" LINE_STRING );  }
+    auto  ListEntities( EntityId ) -> mtc::api<IEntitiesList> override;
+    auto  ListEntities( uint32_t ) -> mtc::api<IEntitiesList> override;
     auto  ListContents( const std::string_view& ) -> mtc::api<IContentsList> override;
 
     auto  Commit() -> mtc::api<IStorage::ISerialized> override;
@@ -77,6 +79,51 @@ namespace layered {
     std::condition_variable     evEvent;
     std::thread                 monitor;
     std::atomic_long            mergers = 0;
+  };
+
+  class ContentsIndex::EntityIteratorByIx final: public IEntitiesList
+  {
+    struct IndexRefer
+    {
+      uint32_t                uLower;
+      uint32_t                uUpper;
+      mtc::api<IEntitiesList> pItems;
+    };
+
+  public:
+    EntityIteratorByIx( ContentsIndex*, unsigned );
+
+    auto  Curr() -> mtc::api<const IEntity> override;
+    auto  Next() -> mtc::api<const IEntity> override;
+
+  protected:
+    std::list<IndexRefer>           refers;
+    std::list<IndexRefer>::iterator refptr;
+
+    implement_lifetime_control
+  };
+
+  class ContentsIndex::EntityIteratorById final: public IEntitiesList
+  {
+    struct IndexRefer
+    {
+      uint32_t                uLower;
+      uint32_t                uUpper;
+      mtc::api<IEntitiesList> pItems;
+      mtc::api<const IEntity> entity;
+      std::string_view        ent_id;
+    };
+
+  public:
+    EntityIteratorById( ContentsIndex* parent, EntityId first );
+
+    auto  Curr() -> mtc::api<const IEntity> override;
+    auto  Next() -> mtc::api<const IEntity> override;
+
+  protected:
+    std::list<IndexRefer>           refers;
+
+    implement_lifetime_control
   };
 
   // ContentsIndex implementation
@@ -155,8 +202,10 @@ namespace layered {
     return delEntity( id );
   }
 
-  auto  ContentsIndex::SetEntity( EntityId id, mtc::api<const IContents> contents,
-    const std::string_view& xtra, const std::string_view& beef ) -> mtc::api<const IEntity>
+  auto  ContentsIndex::SetEntity( EntityId id,
+    const mtc::span<const EntryView>& keys,
+    const std::string_view&           xtra,
+    const std::string_view&           beef ) -> mtc::api<const IEntity>
   {
     if ( layers.empty() )
       throw std::logic_error( "index flakes are not initialized" );
@@ -166,11 +215,17 @@ namespace layered {
       auto  shlock = mtc::make_shared_lock( ixlock );
       auto  exlock = mtc::make_unique_lock( ixlock, std::defer_lock );
       auto  pindex = layers.back().pIndex.ptr();    // the last index pointer, unchanged in one thread
+      auto  thedoc = mtc::api<const IEntity>();
 
-    // try Set the entity to the last index in the chain
+    // try Set the entity to the last index in the chain; if done, try delete
+    // the document from all the slices except the last one
       try
       {
-        return layers.back().Override( pindex->SetEntity( id, contents, xtra, beef ) );
+        if ( (thedoc = pindex->SetEntity( id, keys, xtra, beef )) != nullptr )
+          for ( auto beg = layers.begin(); beg + 1 != layers.end(); ++beg )
+            beg->pIndex->DelEntity( id );
+
+        return layers.back().Override( thedoc );
       }
 
     // on dynamic index overflow, rotate the last index by creating new one in a new flakes,
@@ -209,6 +264,16 @@ namespace layered {
   {
     auto  shlock = mtc::make_shared_lock( ixlock );
     return setExtras( id, extras );
+  }
+
+  auto ContentsIndex::ListEntities( EntityId start ) -> mtc::api<IEntitiesList>
+  {
+    return new EntityIteratorById( this, start );
+  }
+
+  auto ContentsIndex::ListEntities( uint32_t start ) -> mtc::api<IEntitiesList>
+  {
+    return new EntityIteratorByIx( this, start );
   }
 
   auto  ContentsIndex::Commit() -> mtc::api<IStorage::ISerialized>
@@ -431,7 +496,112 @@ namespace layered {
     return { nullptr, Notify::Event::None };
   }
 
+  // ContentsIndex::EntityIteratorByIx impl
+
+  ContentsIndex::EntityIteratorByIx::EntityIteratorByIx( ContentsIndex* parent, unsigned first )
+  {
+    auto  itnext = mtc::api<IEntitiesList>{};
+
+    for ( auto& next: parent->layers )
+      if ( (itnext = next.pIndex->ListEntities( 0U )) != nullptr )
+        refers.push_back( { next.uLower, next.uUpper, itnext } );
+
+    refptr = refers.begin();
+  }
+
+  auto  ContentsIndex::EntityIteratorByIx::Curr() -> mtc::api<const IEntity>
+  {
+    auto  getdoc = mtc::api<const IEntity>{};
+
+    while ( refptr != refers.end() )
+    {
+      if ( (getdoc = refptr->pItems->Curr()) != nullptr )
+        return Override::Entity( getdoc ).Index( getdoc->GetIndex() + refptr->uLower - 1 );
+
+      refptr = refers.erase( refptr );
+    }
+    return nullptr;
+  }
+
+  auto  ContentsIndex::EntityIteratorByIx::Next() -> mtc::api<const IEntity>
+  {
+    auto  fnLoad = &IEntitiesList::Next;
+    auto  getdoc = mtc::api<const IEntity>{};
+
+    while ( refptr != refers.end() )
+    {
+      if ( (getdoc = (refptr->pItems.ptr()->*fnLoad)()) != nullptr )
+        return Override::Entity( getdoc ).Index( getdoc->GetIndex() + refptr->uLower - 1 );
+
+      refptr = refers.erase( refptr );
+      fnLoad = &IEntitiesList::Curr;
+    }
+    return nullptr;
+  }
+
+  // ContentsIndex::EntityIteratorById impl
+
+  ContentsIndex::EntityIteratorById::EntityIteratorById( ContentsIndex* parent, EntityId first )
+  {
+    auto  itnext = mtc::api<IEntitiesList>();
+    auto  getdoc = mtc::api<const IEntity>();
+
+    for ( auto& next: parent->layers )
+      if ( (itnext = next.pIndex->ListEntities( first )) != nullptr && (getdoc = itnext->Curr()) != nullptr )
+        refers.push_back( { next.uLower, next.uUpper, itnext, getdoc, getdoc->GetId() } );
+  }
+
+  auto  ContentsIndex::EntityIteratorById::Curr() -> mtc::api<const IEntity>
+  {
+    auto  pfirst = refers.begin();
+    auto  minone = pfirst;
+
+  // select smallest document
+    if ( minone != refers.end() )
+    {
+      while ( ++pfirst != refers.end() )
+        if ( pfirst->ent_id < minone->ent_id )
+          minone = pfirst;
+
+      return Override::Entity( minone->entity ).Index( minone->entity->GetIndex() + minone->uLower - 1 );
+    }
+    return nullptr;
+  }
+
+  auto  ContentsIndex::EntityIteratorById::Next() -> mtc::api<const IEntity>
+  {
+    auto  pfirst = refers.begin();
+    auto  minone = pfirst;
+
+    if ( pfirst != refers.end() )
+    {
+    // search minimal one
+      while ( ++pfirst != refers.end() )
+        if ( pfirst->ent_id < minone->ent_id )
+          minone = pfirst;
+
+    // move minimal element to next
+      if ( (minone->entity = minone->pItems->Next()) != nullptr ) minone->ent_id = minone->entity->GetId();
+        else refers.erase( minone );
+
+      if ( (minone = pfirst = refers.begin()) != refers.end() )
+      {
+      // search minmal again
+        while ( ++pfirst != refers.end() )
+          if ( pfirst->ent_id < minone->ent_id )
+            minone = pfirst;
+
+        return Override::Entity( minone->entity ).Index( minone->entity->GetIndex() + minone->uLower - 1 );
+      }
+    }
+    return nullptr;
+  }
+
   // Index implementation
+
+  Index::Index( mtc::api<IStorage> ps ): contentsStorage( ps )
+  {
+  }
 
   auto  Index::Set( mtc::api<IStorage> ps ) -> Index&
   {
