@@ -7,368 +7,270 @@
 namespace structo {
 namespace context {
 
-  struct RichEntry
+  struct Contents::impl
   {
-    unsigned  pos = 0;
-    uint8_t   fid = 0;
-
-  public:
-    RichEntry() = default;
-    RichEntry( unsigned p, uint8_t f ): pos( p ), fid( f ) {}
-
-  public:
-    auto  operator - ( const RichEntry& o ) const -> RichEntry  {  return { pos - o.pos, fid };  }
-    auto  operator - ( int n ) const -> RichEntry          {  return { pos - n, fid };  }
-    auto  operator -= ( const RichEntry& o ) -> RichEntry&      {  return pos -= o.pos, *this;  }
-    auto  operator -= ( int n ) -> RichEntry&              {  return pos -= n, *this;  }
-
-  public:
-    auto    GetBufLen() const -> size_t {  return ::GetBufLen( pos ) + 1;  }
-  template <class O>
-    auto    Serialize( O* o ) const -> O* {  return ::Serialize( ::Serialize( o, pos ), fid );  }
-
+    std::vector<EntryView> entryViews;
   };
 
-  class Contents final: public IContents
+ /*
+  * MiniImpl - просто факт присутствия лексемы в документе и его размерность.
+  */
+  struct MiniImpl: Contents::impl
   {
-    implement_lifetime_control
+    mtc::arbitrarymap<size_t> keyMapping;
+    char                      docSizeBuf[0x20];
+  };
 
-  public:
-    struct Entries
+ /*
+  * BM25Impl - количество появлений ключа в документе и размерность этого документа.
+  */
+  struct BM25Impl: public Contents::impl
+  {
+    struct CountRec
     {
-      virtual      ~Entries() = default;
-      virtual auto  BlockType() const -> unsigned = 0;
-      virtual auto  GetBufLen() const -> size_t = 0;
-      virtual auto  Serialize( char* ) const -> char* = 0;
+      size_t  keypos;
+      char    serial[8];
     };
 
-    using AllocatorType = mtc::Arena::allocator<char>;
+    mtc::arbitrarymap<CountRec> keyMapping;
+    char                        docSizeBuf[0x20];
+  };
+
+ /*
+  * RichImpl - предельно подробная детализация вхождений, и форматирование вдогонку.
+  */
+  class RichImpl: public Contents::impl
+  {
+    static constexpr unsigned max_entry_count = 0x10000;
+
+    friend  auto  GetRichContents(
+      const mtc::span<const mtc::span<const Lexeme>>&,
+      const mtc::span<const DeliriX::MarkupTag>&, FieldHandler& ) -> Contents;
+
+    template <class Base, class T>
+    using rebind = typename std::allocator_traits<Base>::template rebind_alloc<T>;
+
+    struct EntryData;
+    struct RichEntry;
+    class  Positions;
+    class  WordForms;
+    using  KeyMapper = mtc::arbitrarymap<size_t, mtc::Arena::allocator<char>>;
 
   public:
-    Contents():
-      keyToPos( memArena.Create<EntriesMap>() ) {}
+    RichImpl(): keyMapping( allocArena.Create<KeyMapper>() )  {}
 
-    template <class Compressor>
-    void  AddEntry( const Key&, const typename Compressor::entry_type& );
-    auto  SetBlock( const Key&, unsigned type, size_t size ) -> mtc::span<char>;
-
-  public:      // overridables from IContents
-    void  Enum( IContentsIndex::IIndexAPI* ) const override;
+    void  AddEntry( const Lexeme&, unsigned pos );
 
   protected:
-    using EntriesMap = mtc::arbitrarymap<Entries*, mtc::Arena::allocator<char>>;
-
-    mtc::Arena  memArena;
-    EntriesMap* keyToPos;
+    mtc::Arena  allocArena;
+    KeyMapper*  keyMapping;
 
   };
 
-  template <unsigned typeId>
-  class ReferedKey: public Contents::Entries
+ /*
+  * RichContents::EntryData
+  *
+  * Абстрактное представление вхождений некоторого термина.
+  */
+  struct RichImpl::EntryData
   {
-  public:
-    enum: unsigned {  objectType = typeId };
-
-    using entry_type = struct{};
-
-  template <class Allocator>
-    ReferedKey( Allocator ) {}
-  template <class ... Args>
-    void  AddRecord( Args... ) {}
-    auto  BlockType() const -> unsigned override  {  return objectType;  }
-    auto  GetBufLen() const -> size_t override    {  return 0;  }
-    char* Serialize( char* o ) const override     {  return o;  }
+    virtual auto  Finish() -> std::string_view = 0;
   };
 
-  template <unsigned typeId>
-  class CountWords: public Contents::Entries
+ /*
+  * RichContents::Positions
+  *
+  * Только позиции термина в документе.
+  */
+  class RichImpl::Positions: public EntryData
   {
-    unsigned  count = 0;
+    struct EntryBlock
+    {
+      EntryBlock* next;
+      char        buff[0x200 - 0x20];
+      char*       pend = buff;
+
+      size_t  GetSpace() const {  return std::end( buff ) - pend;  }
+    };
+
+    using allocator_type = rebind<mtc::Arena::allocator<char>, EntryBlock>;
+
+    auto  Finish() -> std::string_view override;
 
   public:
-    enum: unsigned {  objectType = typeId };
+    Positions( const mtc::Arena::allocator<char>& alloc ): allocEntries( alloc ) {}
 
-    using entry_type = struct{};
-
-  template <class Allocator>
-    CountWords( Allocator ) {}
-  template <class ... Args>
-    void  AddRecord( Args... ) {  ++count;  }
-    auto  BlockType() const -> unsigned override  {  return objectType;  }
-    auto  GetBufLen() const -> size_t override    {  return ::GetBufLen( count );  }
-    char* Serialize( char* o ) const override     {  return ::Serialize( o, count );  }
-  };
-
-  template <unsigned typeId, class Entry, class Alloc>
-  class Compressor: public Contents::Entries, protected std::vector<Entry, AllocatorCast<Alloc, Entry>>
-  {
-  public:
-    enum: unsigned {  objectType = typeId  };
-
-    using entry_type = Entry;
-
-  public:
-    Compressor( Alloc alloc ): std::vector<Entry, AllocatorCast<Alloc, Entry>>( alloc ) {}
-
-    void  AddRecord( const entry_type& entry )
-    {
-      this->push_back( entry );
-    }
-    auto  BlockType() const -> unsigned override
-    {
-      return objectType;
-    }
-    auto  GetBufLen() const -> size_t override
-    {
-      auto  ptrbeg = this->begin();
-      auto  oldent = *ptrbeg++;
-      auto  length = ::GetBufLen( oldent );
-
-      for ( ; ptrbeg != this->end(); oldent = *ptrbeg++ )
-        length += ::GetBufLen( *ptrbeg - oldent - 1 );
-
-      return length;
-    }
-    char* Serialize( char* o ) const override
-    {
-      auto  ptrbeg = this->begin();
-      auto  oldent = *ptrbeg++;
-
-      for ( o = ::Serialize( o, oldent ); ptrbeg != this->end() && o != nullptr; oldent = *ptrbeg++ )
-        o = ::Serialize( o, *ptrbeg - oldent - 1 );
-
-      return o;
-    }
-
-  };
-
-  template <unsigned typeId, class Alloc>
-  class WordsForms: public Contents::Entries, protected std::vector<RichEntry, AllocatorCast<Alloc, RichEntry>>
-  {
-  public:
-    enum: unsigned {  objectType = typeId  };
-
-    using entry_type = RichEntry;
-
-  public:
-    WordsForms( Alloc alloc ): std::vector<RichEntry, AllocatorCast<Alloc, RichEntry>>( alloc ) {}
-
-    void  AddRecord( const entry_type& entry )
-    {
-      this->push_back( entry );
-    }
-    auto  BlockType() const -> unsigned override
-    {
-      return objectType;
-    }
-    auto  GetBufLen() const -> size_t override
-    {
-      auto  ptrbeg = this->begin();
-      auto  idform = (ptrbeg++)->fid;
-      auto  length = size_t(0);
-
-    // check if all the entries have same form
-      while ( ptrbeg != this->end() && ptrbeg->fid == idform )
-        ++ptrbeg;
-
-      if ( ptrbeg == this->end() )
-      {
-        auto  lvalue = 0x01 | (idform << 2);
-        auto  oldpos = this->front().pos;
-
-        length = ::GetBufLen( lvalue ) + ::GetBufLen( oldpos );
-
-        for ( ptrbeg = this->begin() + 1; ptrbeg != this->end(); oldpos = (ptrbeg++)->pos )
-          length += ::GetBufLen( ptrbeg->pos - oldpos - 1 );
-      }
-        else
-      {
-        auto  oldpos = this->front().pos;
-
-        length = ::GetBufLen( oldpos << 2 ) + ::GetBufLen( this->front().fid );
-
-        for ( ptrbeg = this->begin() + 1; ptrbeg != this->end(); oldpos = (ptrbeg++)->pos )
-          length += ::GetBufLen( ptrbeg->pos - oldpos - 1 ) + 1;
-      }
-      return length;
-    }
-    char* Serialize( char* o ) const override
-    {
-      auto  ptrbeg = this->begin();
-      auto  idform = (ptrbeg++)->fid;
-
-      // check if all the entries have same form
-      while ( ptrbeg != this->end() && ptrbeg->fid == idform )
-        ++ptrbeg;
-
-      if ( ptrbeg == this->end() )
-      {
-        auto  lvalue = 0x01 | (idform << 2);
-        auto  oldpos = this->front().pos;
-
-        o = ::Serialize( ::Serialize( o, lvalue ), oldpos );
-
-        for ( ptrbeg = this->begin() + 1; ptrbeg != this->end(); oldpos = (ptrbeg++)->pos )
-          o = ::Serialize( o, ptrbeg->pos - oldpos - 1 );
-      }
-        else
-      {
-        auto  oldpos = this->front().pos;
-
-        o = ::Serialize( ::Serialize( o, oldpos << 2 ), this->front().fid );
-
-        for ( ptrbeg = this->begin() + 1; ptrbeg != this->end(); oldpos = (ptrbeg++)->pos )
-          o = ::Serialize( ::Serialize( o, ptrbeg->pos - oldpos - 1 ), ptrbeg->fid );
-      }
-
-      return o;
-    }
-
-  };
-
-  class DataHolder: public Contents::Entries
-  {
-    const unsigned  bkType;
-
-    const size_t    length;
-    char            buffer[1];
+    void  AddRecord( unsigned entry );
 
   protected:
-    DataHolder( unsigned type, size_t size ):
-      bkType( type ),
-      length( size )  {}
+    allocator_type  allocEntries;
+    EntryBlock*     entrySerials = nullptr;
+    EntryBlock*     entryFilling = nullptr;
+    char*           serialBuffer = nullptr;
+    unsigned        entriesCount = 0;
+    unsigned        serialLength = 0;
+    unsigned        lastPosition = 0;
+  };
+
+ /*
+  * RichContents::WordForms
+  *
+  * Позиции термина и формы слова с возможной компрессией при сериализации.
+  */
+  class RichImpl::WordForms: public EntryData
+  {
+    struct FormsEntry
+    {
+      unsigned  pos;
+      uint8_t   fid;
+    };
+    enum: size_t
+    {
+      entry_size = sizeof(FormsEntry),
+      block_size = 0x200,
+      array_size = (block_size - 0x20) / entry_size
+    };
+    struct EntryBlock
+    {
+      EntryBlock* next;
+      union
+      {
+        FormsEntry  buff[array_size];
+        char        data[array_size * sizeof(FormsEntry)];
+      };
+      FormsEntry* pend = buff;
+    };
+
+    using allocator_type = rebind<mtc::Arena::allocator<char>, EntryBlock>;
+
+    auto  Finish() -> std::string_view override;
 
   public:
-    template <class Allocator>
-    static  DataHolder* Create( unsigned type, size_t size, Allocator mman )
-    {
-      auto  malloc = AllocatorCast<Allocator, DataHolder>( mman );
-      auto  nalloc = sizeof(DataHolder) - sizeof(DataHolder::buffer) + size;
-      auto  palloc = malloc.allocate( (nalloc + sizeof(DataHolder) - 1) / sizeof(DataHolder) );
+    WordForms( const mtc::Arena::allocator<char>& alloc ): allocEntries( alloc ) {}
 
-      return new( palloc ) DataHolder( type, size );
-    }
+    void  AddRecord( unsigned pos, uint8_t fid );
 
-    auto  GetBuffer() -> mtc::span<char>                {  return { buffer, length };  }
-    auto  BlockType() const -> unsigned override        {  return bkType;  }
-    auto  GetBufLen() const -> size_t override          {  return length;  }
-    auto  Serialize( char* o ) const -> char* override  {  return ::Serialize( o, buffer, length );  }
-
+  protected:
+    allocator_type  allocEntries;
+    EntryBlock*     entrySerials = nullptr;
+    EntryBlock*     entryFilling = nullptr;
+    char*           serialBuffer = nullptr;
+    unsigned        entriesCount = 0;
+    unsigned        serialLength = 0;
   };
+
+  static const char dsrKey[3] = { 'd', 's', 'r' };
 
   // Contents implementation
 
-  template <class Compressor>
-  void  Contents::AddEntry( const Key& key, const typename Compressor::entry_type& ent )
+  auto  Contents::get() const -> mtc::span<const EntryView>
   {
-    auto  pblock = keyToPos->Search( key.data(), key.size() );
-
-    if ( pblock == nullptr )
-    {
-      pblock = keyToPos->Insert( key.data(), key.size(),
-        memArena.Create<Compressor>() );
-    }
-
-    if ( (*pblock)->BlockType() != Compressor::objectType )
-      throw std::invalid_argument( "object types differ for different entries" );
-
-    return ((Compressor*)(*pblock))->AddRecord( ent );
+    if ( contents != nullptr )
+      return contents->entryViews;
+    throw std::runtime_error( "uninitialized document contents" );
   }
 
-  auto  Contents::SetBlock( const Key& key, unsigned type, size_t size ) -> mtc::span<char>
-  {
-    auto  pblock = keyToPos->Search( key.data(), key.size() );
-
-    if ( pblock == nullptr )
-    {
-      pblock = keyToPos->Insert( key.data(), key.size(),
-        DataHolder::Create( type, size, memArena.get_allocator<char>() ) );
-    }
-
-    if ( (*pblock)->BlockType() != type )
-      throw std::invalid_argument( "type of created object does not match the requested one" );
-
-    return ((DataHolder*)(*pblock))->GetBuffer();
-  }
-
-  void  Contents::Enum( IContentsIndex::IIndexAPI* index ) const
-  {
-    char              stabuf[0x100];
-    std::vector<char> dynbuf;
-
-    if ( index == nullptr )
-      throw std::invalid_argument( "invalid (null) call parameter" );
-
-    for ( auto next = keyToPos->Enum( nullptr ); next != nullptr; next = keyToPos->Enum( next ) )
-    {
-      auto    keyptr = keyToPos->GetKey( next );
-      auto    keylen = keyToPos->KeyLen( next );
-      auto    pvalue = keyToPos->GetVal( next );
-      size_t  vallen = pvalue->GetBufLen();
-      char*   endptr;
-
-      if ( vallen <= sizeof(stabuf) )
-      {
-        endptr = pvalue->Serialize( stabuf );
-
-        if ( endptr != stabuf + vallen )
-          throw std::logic_error( "entries serialization fault" );
-
-        index->Insert( { (const char*)keyptr, keylen }, { stabuf, size_t(endptr - stabuf) },
-          pvalue->BlockType() );
-      }
-        else
-      {
-        if ( vallen > dynbuf.size() )
-          dynbuf.resize( (vallen + 0x100 - 1) & ~(0x100 - 1) );
-
-        endptr = pvalue->Serialize( dynbuf.data() );
-
-        if ( endptr != dynbuf.data() + vallen )
-          throw std::logic_error( "entries serialization fault" );
-
-        index->Insert( { (const char*)keyptr, keylen }, { dynbuf.data(), size_t(endptr - dynbuf.data()) },
-          pvalue->BlockType() );
-      }
-    }
-  }
-
-  // Context creation functions
+  // GetMiniContents implementation
 
   auto  GetMiniContents(
     const mtc::span<const mtc::span<const Lexeme>>& lemm,
-    const mtc::span<const DeliriX::MarkupTag>&      mkup, FieldHandler& ) -> mtc::api<IContents>
+    const mtc::span<const DeliriX::MarkupTag>&, FieldHandler& ) -> Contents
   {
-    auto  contents = mtc::api<Contents>( new Contents() );
+    auto  contents = Contents();
+    auto  implMini = new MiniImpl();
+    auto  foundKey = decltype(implMini->keyMapping)::iterator();
 
-    for ( auto& word: lemm )
-      for ( auto& term: word )
-        contents->AddEntry<ReferedKey<0>>( term, {} );
+  // create contents object
+    contents.contents = std::shared_ptr<Contents::impl>( implMini,
+      []( Contents::impl* p ){  delete (MiniImpl*)p;  } );
 
-    return (void)mkup, contents.ptr();
+  // list ll words
+    for ( auto& next: lemm )
+      for ( auto& term: next )
+      {
+        if ( (foundKey = implMini->keyMapping.find( term )) == implMini->keyMapping.end() )
+        {
+          foundKey = implMini->keyMapping.insert(
+            { term, implMini->entryViews.size() } );
+          implMini->entryViews.emplace_back(
+            std::string_view( (const char*)foundKey->key.data(), foundKey->key.size() ),
+            std::string_view(), 0 );
+        }
+      }
+
+    // set doc stats
+    implMini->entryViews.emplace_back(
+      std::string_view( dsrKey, sizeof(dsrKey) ),
+      std::string_view( implMini->docSizeBuf, ::Serialize( implMini->docSizeBuf,
+        lemm.size() ) - implMini->docSizeBuf ), 99 );
+
+    return contents;
   }
 
-  auto  GetBM25Contents(
-    const mtc::span<const mtc::span<const Lexeme>>& lemm,
-    const mtc::span<const DeliriX::MarkupTag>&      mkup, FieldHandler& ) -> mtc::api<IContents>
+  // GetBM25Contents implementation
+
+  auto  GetBM25Contents( const mtc::span<const mtc::span<const Lexeme>>& lemm,
+    const mtc::span<const DeliriX::MarkupTag>&, FieldHandler& ) -> Contents
   {
-    auto  contents = mtc::api<Contents>( new Contents() );
+    auto  contents = Contents();
+    auto  implBM25 = new BM25Impl();
+    auto  foundKey = decltype(implBM25->keyMapping)::iterator();
 
-    for ( auto& word: lemm )
-      for ( auto& term: word )
-        contents->AddEntry<CountWords<10>>( term, {} );
+  // create contents object
+    contents.contents = std::shared_ptr<Contents::impl>( implBM25,
+      []( Contents::impl* p ){  delete (BM25Impl*)p;  } );
 
-    return (void)mkup, contents.ptr();
+  // insert and count the lexemes
+    for ( auto& next: lemm )
+      for ( auto& term: next )
+      {
+        if ( (foundKey = implBM25->keyMapping.find( term )) == implBM25->keyMapping.end() )
+        {
+          foundKey = implBM25->keyMapping.insert( { term, { implBM25->entryViews.size(), {} } } );
+
+          implBM25->entryViews.emplace_back(
+            std::string_view( (const char*)foundKey->key.data(), foundKey->key.size() ),
+            std::string_view( foundKey->value.serial ), 1 );
+        }
+          else
+        ++implBM25->entryViews[foundKey->value.keypos].bid;
+      }
+
+  // serialize lexeme counters
+    for ( auto& next: implBM25->entryViews )
+    {
+      auto  length = ::Serialize( (char*)next.val.data(), next.bid ) - next.val.data();
+
+      next.val = std::string_view( next.val.data(), length );
+      next.bid = 10;
+    }
+
+  // set doc stats
+    implBM25->entryViews.emplace_back(
+      std::string_view( dsrKey, sizeof(dsrKey) ),
+      std::string_view( implBM25->docSizeBuf, ::Serialize( implBM25->docSizeBuf,
+        lemm.size() ) - implBM25->docSizeBuf ), 99 );
+
+    return contents;
   }
+
+  // GetRichContents implementation
 
   auto  GetRichContents(
     const mtc::span<const mtc::span<const Lexeme>>& lemm,
-    const mtc::span<const DeliriX::MarkupTag>&      mkup, FieldHandler& fman ) -> mtc::api<IContents>
+    const mtc::span<const DeliriX::MarkupTag>&      mkup, FieldHandler& fman ) -> Contents
   {
-    auto  contents = mtc::api( new Contents() );
-    auto  tag_pack = formats::Pack( mkup, fman );
-    auto  def_opts = fman.Get( "default_field" );
-    auto  no_index = std::vector<uint64_t>();
+    auto    contents = Contents();
+    auto    implRich = new RichImpl();
+    auto    tag_pack = formats::Pack( mkup, fman );
+    auto    def_opts = fman.Get( "default_field" );
+    auto    no_index = std::vector<uint64_t>();
+    auto    iterator = RichImpl::KeyMapper::iterator();
+    size_t  ccBuffer;
+
+  // create contents object
+    contents.contents = std::shared_ptr<Contents::impl>( implRich,
+      []( Contents::impl* p ){  delete (RichImpl*)p;  } );
 
   // set no_index flags
     if ( def_opts != nullptr && (def_opts->options & FieldOptions::ofDisableIndex) != 0 )
@@ -387,25 +289,209 @@ namespace context {
       }
     }
 
+  // fill lemma elements with positions
     for ( unsigned i = 0; i != lemm.size(); ++i )
     {
       if ( !no_index.empty() && mtc::bitset_get( no_index, i ) )
         continue;
 
       for ( auto& term: lemm[i] )
+        implRich->AddEntry( term, i );
+    }
+
+  // replace all the elements with their stored arrays
+    for ( auto& next: implRich->entryViews )
+      next.val = ((RichImpl::EntryData*)next.val.data())->Finish();
+
+  // store formats block
+    iterator = implRich->keyMapping->insert( { Key( "fmt" ), 0 } );
+    ccBuffer = tag_pack.size() + ::GetBufLen( lemm.size() );
+
+    implRich->entryViews.emplace_back(
+      std::string_view( (const char*)iterator->key.data(), iterator->key.size() ),
+      std::string_view( (char*)implRich->allocArena.allocate( ccBuffer, 1 ), ccBuffer ), 99 );
+
+    ::Serialize( ::Serialize( (char*)implRich->entryViews.back().val.data(),
+      lemm.size() ), tag_pack.data(), tag_pack.size() );
+
+    return contents;
+  }
+
+  void  RichImpl::AddEntry( const Lexeme& lex, unsigned pos )
+  {
+    auto  pfound = keyMapping->find( lex );
+
+    // if the mapping is not found, create new mapping and place to value.data field
+    // of entry view; else use current entry view compressor pointer
+    if ( pfound == keyMapping->end() )
+    {
+      pfound = keyMapping->insert( { lex, entryViews.size() } );
+
+      entryViews.emplace_back(
+        std::string_view( (const char*)pfound->key.data(), pfound->key.size() ),
+        std::string_view(), 0 );
+
+      if ( lex.GetForms().empty() || lex.GetForms().front() == 0xff )
       {
-        if ( term.GetForms().empty() || term.GetForms().front() == 0xff )
-          contents->AddEntry<Compressor<20, unsigned, Contents::AllocatorType>>( term, i );
+        auto  pblock = allocArena.Create<Positions>();
+          pblock->AddRecord( pos );
+        entryViews.back().val = std::string_view( (const char*)pblock, 0 );
+        entryViews.back().bid = 20;
+      }
         else
-//          contents->AddEntry<Compressor<21, RichEntry, Contents::AllocatorType>>( term, { i, term.GetForms().front() } );
-          contents->AddEntry<WordsForms<21, Contents::AllocatorType>>( term, { i, term.GetForms().front() } );
+      {
+        auto  pblock = allocArena.Create<WordForms>();
+          pblock->AddRecord( pos, lex.GetForms().front() );
+        entryViews.back().val = std::string_view( (const char*)pblock, 0 );
+        entryViews.back().bid = 21;
+      }
+    }
+      else
+    {
+      if ( lex.GetForms().empty() || lex.GetForms().front() == 0xff )
+      {
+        if ( entryViews[pfound->value].bid != 20 )
+          throw std::invalid_argument( "object types differ for different entries" );
+        ((Positions*)entryViews[pfound->value].val.data())->AddRecord( pos );
+      }
+        else
+      {
+        if ( entryViews[pfound->value].bid != 21 )
+          throw std::invalid_argument( "object types differ for different entries" );
+        ((WordForms*)entryViews[pfound->value].val.data())->AddRecord( pos, lex.GetForms().front() );
+      }
+    }
+  }
+
+  // RichImpl::Positions implementation
+
+  auto RichImpl::Positions::Finish() -> std::string_view
+  {
+  // check if no need in serialization
+    if ( entrySerials->next == nullptr )
+      return { entrySerials->buff, size_t(entrySerials->pend - entrySerials->buff) };
+
+  // check if is already serialized
+    if ( serialBuffer == nullptr )
+    {
+      auto  outputBuffer = serialBuffer = rebind<allocator_type, char>( allocEntries )
+        .allocate( serialLength );
+
+      for ( auto p = entrySerials; p != nullptr; p = p->next )
+      {
+        memcpy( outputBuffer, p->buff, p->pend - p->buff );
+          outputBuffer += p->pend - p->buff;
+      }
+    }
+    return { serialBuffer, size_t(serialLength) };
+  }
+
+  void  RichImpl::Positions::AddRecord( unsigned entry )
+  {
+    if ( entryFilling != nullptr )
+    {
+      if ( entriesCount < max_entry_count )
+      {
+        auto  storePos = entry - lastPosition - 1;
+        auto  diffSize = ::GetBufLen( storePos );
+
+        if ( diffSize > entryFilling->GetSpace() )
+          entryFilling = new( entryFilling->next = allocEntries.allocate( 1 ) ) EntryBlock();
+
+        entryFilling->pend = ::Serialize( entryFilling->pend, storePos );
+          serialLength += diffSize;
+        ++entriesCount;
+      }
+    }
+      else
+    {
+      entryFilling = new (entrySerials = allocEntries.allocate( 1 )) EntryBlock();
+
+      entryFilling->pend = ::Serialize( entryFilling->buff, lastPosition = entry );
+        serialLength = entryFilling->pend - entryFilling->buff;
+      entriesCount = 1;
+    }
+  }
+
+  // RichImpl::WordForms implementation
+
+  auto  RichImpl::WordForms::Finish() -> std::string_view
+  {
+    auto  pblock = entrySerials;
+    auto  idform = pblock->buff->fid;
+    char* output = pblock->data;
+    char* outorg = output;
+    bool  sameId = true;
+
+  // check if the word form may be taken out of equation
+    for ( ; sameId && pblock != nullptr; pblock = pblock->next )
+      for ( auto pforms = pblock->buff; pforms != pblock->pend && sameId; ++pforms )
+        sameId = pforms->fid == idform;
+
+  // check if may be represented in existing buffer
+    if ( (pblock = entrySerials)->next != nullptr )
+    {
+      auto  nalloc = 8 + entriesCount * (3 + (sameId ? 0 : 1));
+
+      outorg =
+      output = rebind<allocator_type, char>( allocEntries ).allocate( nalloc );
+    }
+
+  // serialize data to selected buffer
+    if ( sameId )
+    {
+      auto  lvalue = 0x01 | (idform << 2);
+      auto  pforms = pblock->buff;
+      auto  oldpos = (pforms++)->pos;
+
+      output = ::Serialize( ::Serialize( output,
+        lvalue ),
+        oldpos );
+
+      for ( ;; )
+      {
+        for ( ; pforms != pblock->pend; oldpos = (pforms++)->pos )
+          output = ::Serialize( output, pforms->pos - oldpos - 1 );
+
+        if ( (pblock = pblock->next) != nullptr ) pforms = pblock->buff;
+          else break;
+      }
+    }
+      else
+    {
+      auto  pforms = pblock->buff;
+      auto  oldpos = pforms->pos;
+
+      output = ::Serialize( ::Serialize( output,
+        oldpos << 2 ),
+        pforms->fid );
+
+      for ( ++pforms;; )
+      {
+        for ( ; pforms != pblock->pend; oldpos = (pforms++)->pos )
+          output = ::Serialize( ::Serialize( output, pforms->pos - oldpos - 1 ), pforms->fid );
+
+        if ( (pblock = pblock->next) != nullptr ) pforms = pblock->buff;
+          else break;
       }
     }
 
-    auto  ftpack = contents->SetBlock( Key( "fmt" ), 99, ::GetBufLen( lemm.size() ) + tag_pack.size() );
-      ::Serialize( ::Serialize( ftpack.data(), lemm.size() ), tag_pack.data(), tag_pack.size() );
+    return { outorg, size_t(output - outorg) };
+  }
 
-    return contents.ptr();
+  void  RichImpl::WordForms::AddRecord( unsigned pos, uint8_t fid )
+  {
+    if ( entryFilling == nullptr )
+      entryFilling = new (entrySerials = allocEntries.allocate( 1 )) EntryBlock();
+
+    if ( entriesCount < max_entry_count )
+    {
+      if ( entryFilling->pend == std::end(entryFilling->buff) )
+        entryFilling = new( entryFilling->next = allocEntries.allocate( 1 ) ) EntryBlock();
+
+      *entryFilling->pend++ = { pos, fid };
+      ++entriesCount;
+    }
   }
 
 }}
