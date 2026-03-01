@@ -40,7 +40,7 @@ namespace static_ {
     auto  GetEntity( EntityId id ) const -> mtc::api<const IEntity> override;
     auto  GetEntity( uint32_t id ) const -> mtc::api<const IEntity> override;
     bool  DelEntity( EntityId ) override;
-    auto  SetEntity( EntityId, mtc::api<const IContents>,
+    auto  SetEntity( EntityId, const mtc::span<const EntryView>&,
       const std::string_view&, const std::string_view& ) -> mtc::api<const IEntity> override;
     auto  SetExtras( EntityId, const std::string_view& ) -> mtc::api<const IEntity> override;
 
@@ -213,7 +213,7 @@ namespace static_ {
     return false;
   }
 
-  auto  ContentsIndex::SetEntity( EntityId, mtc::api<const IContents>,
+  auto  ContentsIndex::SetEntity( EntityId, const mtc::span<const EntryView>&,
     const std::string_view&, const std::string_view& ) -> mtc::api<const IEntity>
   {
     throw std::logic_error( "static_::ContentsIndex::SetEntity( ) must not be called" );
@@ -327,15 +327,20 @@ namespace static_ {
 
   auto  ContentsIndex::EntitiesLite::Find( uint32_t tofind ) -> Reference
   {
-    for ( tofind = std::max( tofind, 1U ); ptrtop < ptrend && curref.uEntity < tofind; )
+    if ( curref.uEntity >= (tofind = std::max( tofind, 1U )) )
+      return curref;
+
+    for ( tofind = std::max( tofind, 1U ); ptrtop < ptrend; )
     {
       unsigned  udelta;
 
       if ( (ptrtop = ::FetchFrom( ptrtop, udelta )) == nullptr )
         return curref = { (uint32_t)-1, { nullptr, 0 } };
-      curref.uEntity += udelta + 1;
+
+      if ( (curref.uEntity += udelta + 1) >= tofind && !parent->shadowed.Get( curref.uEntity ) )
+        return curref;
     }
-    return curref.uEntity >= tofind ? curref : curref = { (uint32_t)-1, { nullptr, 0 } };
+    return curref = { (uint32_t)-1, { nullptr, 0 } };
   }
 
   // ContentsIndex::EntitiesRich implementation

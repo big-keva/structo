@@ -36,7 +36,7 @@ namespace fusion  {
     auto  GetEntity( uint32_t ) const -> mtc::api<const IEntity> override;
 
     bool  DelEntity( EntityId ) override;
-    auto  SetEntity( EntityId, mtc::api<const IContents>,
+    auto  SetEntity( EntityId, const mtc::span<const EntryView>&,
       const std::string_view&, const std::string_view& ) -> mtc::api<const IEntity> override;
     auto  SetExtras( EntityId,
       const std::string_view& ) -> mtc::api<const IEntity> override;
@@ -206,7 +206,7 @@ namespace fusion  {
     return output->DelEntity( id );
   }
 
-  auto  ContentsIndex::SetEntity( EntityId, mtc::api<const IContents>,
+  auto  ContentsIndex::SetEntity( EntityId, const mtc::span<const EntryView>&,
     const std::string_view&, const std::string_view& ) -> mtc::api<const IEntity>
   {
     throw std::logic_error( "merger::SetEntity(...) must not be called" );

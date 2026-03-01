@@ -34,7 +34,7 @@ namespace dynamic {
     auto  GetEntity( uint32_t ) const -> mtc::api<const IEntity> override;
 
     bool  DelEntity( EntityId ) override;
-    auto  SetEntity( EntityId, mtc::api<const IContents>,
+    auto  SetEntity( EntityId, const mtc::span<const EntryView>&,
       const std::string_view&, const std::string_view& ) -> mtc::api<const IEntity> override;
     auto  SetExtras( EntityId,
       const std::string_view& ) -> mtc::api<const IEntity> override;
@@ -190,13 +190,14 @@ namespace dynamic {
     return del_id != (uint32_t)-1 ? shadowed.Set( del_id ), true : false;
   }
 
-  auto  ContentsIndex::SetEntity( EntityId id, mtc::api<const IContents> keys,
+  auto  ContentsIndex::SetEntity( EntityId id, const mtc::span<const EntryView>& keys,
     const std::string_view& xtra, const std::string_view& beef ) -> mtc::api<const IEntity>
   {
     auto  entity = mtc::api<EntTable::Entity>();
     auto  bodies = pStorage != nullptr ? pStorage->Packages() : nullptr;
     auto  del_id = uint32_t{};
     auto  bdlPos = int64_t(-1);
+    auto  ent_id = uint32_t{};
 
   // check memory requirements
     if ( memArena.memusage() > memLimit )
@@ -209,14 +210,15 @@ namespace dynamic {
   // create the entity
     entity = entities.SetEntity( id, xtra, &del_id );
       entity->SetPackPos( bdlPos );
+    ent_id = entity->GetIndex();
 
   // check if any entities deleted
     if ( del_id != uint32_t(-1) )
       shadowed.Set( del_id );
 
   // process contents indexing
-    if ( keys != nullptr )
-      keys->Enum( KeyValue( contents, entity->GetIndex() ).ptr() );
+    for ( auto& next: keys )
+      contents.Insert( next.key, ent_id, next.val, next.bid );
 
     return Override::Entity( entity.ptr() ).Bundle( bodies, entity->GetPackPos() );
   }
