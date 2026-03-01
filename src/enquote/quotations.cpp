@@ -237,7 +237,7 @@ namespace enquote {
     // если есть формат в пределах bounds, вызвать для него рекурсивно
       if ( format != markup.end() && format->uLower < hBound )
       {
-        std::tie( format, quoptr ) = getBounds( output, lBound, std::min( hBound, format->uUpper + 1 ),
+        std::tie( format, quoptr ) = getBounds( output, lBound, std::min( hBound, format->uUpper ),
           *loadField( format->tagKey ), format + 1, quoptr );
       }
     }
