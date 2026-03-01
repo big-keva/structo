@@ -33,6 +33,7 @@ namespace queries {
     {
       entrySet.limits.uMin = std::min( entrySet.limits.uMin, pos.offset );
       entrySet.limits.uMax = std::max( entrySet.limits.uMax, pos.offset );
+      *entryPtr++ = pos;
     }
     return entrySet;
   }
@@ -50,6 +51,7 @@ namespace queries {
     {
       entrySet.limits.uMin = std::min( entrySet.limits.uMin, pos );
       entrySet.limits.uMax = std::max( entrySet.limits.uMax, pos );
+      *entryPtr++ = { pos, 0 };
     }
     return entrySet;
   }

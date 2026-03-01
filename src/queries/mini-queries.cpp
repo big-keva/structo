@@ -16,15 +16,32 @@ namespace queries {
   */
   struct MiniQueryBase: IQuery
   {
-    uint32_t  entityId = 0;                       // the found entity
-    Abstract  abstract = {};
+    uint32_t            entityId = 0;                       // the found entity
+    mtc::api<IEntities> docStats;                           // formats and lengths
+    Abstract            abstract = {};
 
   public:
+    MiniQueryBase( mtc::api<IEntities> dsr ): docStats( dsr )
+    {
+    }
+
     auto  SetAbstract( const BM25Term* beg, const BM25Term* end ) -> Abstract&
     {
       return (abstract = { end != beg ? Abstract::BM25 : Abstract::None, 0U, {} })
         .factors = { beg, end }, abstract;
     }
+    auto  GetTuples( uint32_t udocid ) -> const Abstract& override
+    {
+      if ( (abstract = GetChunks( udocid )).dwMode != Abstract::None )
+      {
+        auto  enstat = docStats->Find( udocid );
+
+        if ( enstat.uEntity == udocid ) ::FetchFrom( enstat.details.data(), abstract.nWords );
+          else return abstract = {};
+      }
+      return abstract;
+    }
+    virtual   auto  GetChunks( uint32_t ) -> Abstract& = 0;
   };
 
  /*
@@ -36,14 +53,16 @@ namespace queries {
     implement_lifetime_control
 
   // construction
-    MiniQueryTerm( const mtc::api<IEntities>& blk, double idf ): MiniQueryBase(),
+    MiniQueryTerm( mtc::api<IEntities> dsr, mtc::api<IEntities> blk, double idf ): MiniQueryBase( dsr ),
       entBlock( blk ),
       datatype( blk->Type() ),
-      bm25Term{ 0, idf, 0, 0 } {}
+      bm25Term{ 0, idf, 0, 1 } {}
 
   // overridables
-    uint32_t        SearchDoc( uint32_t ) override;
-    const Abstract& GetTuples( uint32_t ) override;
+    uint32_t  SearchDoc( uint32_t ) override;
+
+  protected:
+    Abstract& GetChunks( uint32_t ) override;
 
   protected:
     mtc::api<IEntities> entBlock;
@@ -60,6 +79,8 @@ namespace queries {
   */
   class MiniMultiTerm final: public MiniQueryBase
   {
+    using MiniQueryBase::MiniQueryBase;
+
     struct KeyBlock
     {
       mtc::api<IEntities> entBlock;           // coordinates
@@ -77,11 +98,13 @@ namespace queries {
     implement_lifetime_control
 
   // construction
-    MiniMultiTerm( std::vector<std::pair<mtc::api<IEntities>, double>>& );
+    MiniMultiTerm( mtc::api<IEntities>, std::vector<std::pair<mtc::api<IEntities>, double>>& );
 
-  // IQuery overridables
-    uint32_t        SearchDoc( uint32_t ) override;
-    const Abstract& GetTuples( uint32_t ) override;
+  protected:
+    Abstract&   GetChunks( uint32_t ) override;
+
+  public:   // IQuery overridables
+    uint32_t    SearchDoc( uint32_t ) override;
 
   protected:
     std::vector<KeyBlock>           blockSet;
@@ -91,6 +114,8 @@ namespace queries {
 
   class MiniQueryArgs: public MiniQueryBase
   {
+    using MiniQueryBase::MiniQueryBase;
+
   public:
     void   AddQueryNode( mtc::api<MiniQueryBase>, double );
     auto   StrictSearch( uint32_t ) -> uint32_t;
@@ -111,10 +136,10 @@ namespace queries {
           return docFound;
         return abstract = {}, docFound = subQuery->SearchDoc( id );
       }
-      auto  GetTuples( uint32_t id ) -> const Abstract&
+      auto  GetChunks( uint32_t id ) -> Abstract&
       {
         return abstract.dwMode == abstract.None && docFound == id ?
-          abstract = subQuery->GetTuples( id ) : abstract;
+          abstract = subQuery->GetChunks( id ) : abstract;
       }
     };
 
@@ -132,7 +157,7 @@ namespace queries {
 
     // overridables
     uint32_t  SearchDoc( uint32_t id ) override  {  return StrictSearch( id );  }
-    auto      GetTuples( uint32_t id ) -> const Abstract& override;
+    auto      GetChunks( uint32_t id ) -> Abstract& override;
 
   };
 
@@ -143,12 +168,12 @@ namespace queries {
     implement_lifetime_control
 
     // construction
-    MiniQueryFuzzy( double quo ): MiniQueryArgs(),
+    MiniQueryFuzzy( mtc::api<IEntities> dsr, double quo ): MiniQueryArgs( dsr ),
       quorum( quo ) {}
 
     // overridables
     uint32_t  SearchDoc( uint32_t ) override;
-    auto      GetTuples( uint32_t ) -> const Abstract& override;
+    auto      GetChunks( uint32_t ) -> Abstract& override;
 
   protected:
     double  quorum;
@@ -163,7 +188,7 @@ namespace queries {
 
     // overridables
     uint32_t  SearchDoc( uint32_t ) override;
-    auto      GetTuples( uint32_t ) -> const Abstract& override;
+    auto      GetChunks( uint32_t ) -> Abstract& override;
 
   protected:
     std::vector<Abstract*>  selected;
@@ -189,7 +214,7 @@ namespace queries {
   * For changed document id, unpack && return the entries and entry sets for given
   * format set
   */
-  auto  MiniQueryTerm::GetTuples( uint32_t tofind ) -> const Abstract&
+  auto  MiniQueryTerm::GetChunks( uint32_t tofind ) -> Abstract&
   {
     if ( docRefer.uEntity == tofind && abstract.dwMode == Abstract::None )
       SetAbstract( &bm25Term, 1 + &bm25Term );
@@ -198,8 +223,8 @@ namespace queries {
 
   // MiniMultiTerm implementation
 
-  MiniMultiTerm::MiniMultiTerm( std::vector<std::pair<mtc::api<IEntities>, double>>& terms ):
-    MiniQueryBase()
+  MiniMultiTerm::MiniMultiTerm( mtc::api<IEntities> dsr, std::vector<std::pair<mtc::api<IEntities>, double>>& terms ):
+    MiniQueryBase( dsr )
   {
     for ( auto& next: terms )
       blockSet.emplace_back( next.first, next.second );
@@ -225,7 +250,7 @@ namespace queries {
     return abstract = {}, entityId = uFound;
   }
 
-  auto  MiniMultiTerm::GetTuples( uint32_t getdoc ) -> const Abstract&
+  auto  MiniMultiTerm::GetChunks( uint32_t getdoc ) -> Abstract&
   {
     if ( getdoc == entityId && abstract.dwMode == Abstract::None )
     {
@@ -290,17 +315,17 @@ namespace queries {
   *
   * Fill abstract with term idf's for all the terms meet in subqueries
   */
-  auto  MiniQueryAll::GetTuples( uint32_t udocid ) -> const Abstract&
+  auto  MiniQueryAll::GetChunks( uint32_t udocid ) -> Abstract&
   {
     if ( abstract.dwMode == abstract.None )
     {
       auto  idfptr = termList;
 
       for ( auto& next: querySet )
-        if ( next.GetTuples( udocid ).factors.size() != 0 )
+        if ( next.GetChunks( udocid ).factors.size() != 0 )
         {
-          while ( next.abstract.factors.beg != next.abstract.factors.end && idfptr != std::end(termList) )
-            *idfptr++ = *next.abstract.factors.beg++;
+          while ( next.abstract.factors.pbeg != next.abstract.factors.pend && idfptr != std::end(termList) )
+            *idfptr++ = *next.abstract.factors.pbeg++;
         }
           else
         return abstract = {};
@@ -349,7 +374,7 @@ namespace queries {
     }
   }
 
-  auto  MiniQueryFuzzy::GetTuples( uint32_t udocid ) -> const Abstract&
+  auto  MiniQueryFuzzy::GetChunks( uint32_t udocid ) -> Abstract&
   {
     if ( abstract.dwMode == abstract.None )
     {
@@ -357,10 +382,10 @@ namespace queries {
       auto  crange = 0.0;
 
       for ( auto& next: querySet )
-        if ( next.GetTuples( udocid ).factors.size() != 0 )
+        if ( next.GetChunks( udocid ).factors.size() != 0 )
         {
-          while ( next.abstract.factors.beg != next.abstract.factors.end && idfptr != std::end(termList) )
-            crange += (*idfptr++ = *next.abstract.factors.beg++).dblIDF;
+          while ( next.abstract.factors.pbeg != next.abstract.factors.pend && idfptr != std::end(termList) )
+            crange += (*idfptr++ = *next.abstract.factors.pbeg++).dblIDF;
         }
 
       return crange >= quorum ? SetAbstract( termList, idfptr ) : abstract = {};
@@ -388,16 +413,16 @@ namespace queries {
     return entityId = uFound;
   }
 
-  auto  MiniQueryAny::GetTuples( uint32_t udocid ) -> const Abstract&
+  auto  MiniQueryAny::GetChunks( uint32_t udocid ) -> Abstract&
   {
     if ( abstract.dwMode == abstract.None )
     {
       auto  idfout = termList;
 
       for ( auto term = querySet.begin(); term != querySet.end() && idfout < std::end(termList); ++term )
-        if ( term->GetTuples( udocid ).factors.size() != 0 )
+        if ( term->GetChunks( udocid ).factors.size() != 0 )
         {
-          for ( auto beg = term->abstract.factors.beg; beg < term->abstract.factors.end && idfout < std::end( termList ); )
+          for ( auto beg = term->abstract.factors.pbeg; beg < term->abstract.factors.pend && idfout < std::end( termList ); )
             *idfout++ = *beg++;
         }
 
@@ -415,6 +440,7 @@ namespace queries {
     const mtc::zmap&                terms;
     const uint32_t                  total;
     const mtc::zmap                 zstat;
+    mtc::api<IEntities>             mkups;
 
   protected:
     struct SubQuery
@@ -429,7 +455,8 @@ namespace queries {
       lproc( lp ),
       terms( tm ),
       total( std::max( terms.get_word32( "collection-size", 0 ), index->GetMaxIndex() ) ),
-      zstat( tm.get_zmap( "terms-range-map", {} ) ) {}
+      zstat( tm.get_zmap( "terms-range-map", {} ) ),
+      mkups( index->GetKeyBlock( "dsr" ) )  {}
 
     auto  BuildQuery( const mtc::zval& ) const -> SubQuery;
 
@@ -450,9 +477,9 @@ namespace queries {
     if ( op == "wildcard" )
       return AsWildcard( op.GetString() );
     if ( op == "&&" || op == "quote" || op == "order" )
-      return CreateArgs<true> ( mtc::api( new MiniQueryAll() ), op.GetVector() );
+      return CreateArgs<true> ( mtc::api( new MiniQueryAll( mkups ) ), op.GetVector() );
     if ( op == "||" )
-      return CreateArgs<false>( mtc::api( new MiniQueryAny() ), op.GetVector() );
+      return CreateArgs<false>( mtc::api( new MiniQueryAny( mkups ) ), op.GetVector() );
     if ( op == "fuzzy" )
     {
       auto  subset = std::vector<SubQuery>{};
@@ -469,7 +496,7 @@ namespace queries {
         }
 
     // create and fill the query
-      pquery = new MiniQueryFuzzy( 0.7 * quorum );
+      pquery = new MiniQueryFuzzy( mkups, 0.7 * quorum );
 
       for ( auto& next: subset )
         pquery->AddQueryNode( next.query, next.range );
@@ -553,9 +580,9 @@ namespace queries {
       return { nullptr, 0.0 };
 
     if ( ablocks.size() == 1 )
-      return { new MiniQueryTerm( ablocks.front().first, fWeight ), fWeight };
+      return { new MiniQueryTerm( mkups, ablocks.front().first, fWeight ), fWeight };
 
-    return { new MiniMultiTerm( ablocks ), fWeight };
+    return { new MiniMultiTerm( mkups, ablocks ), fWeight };
   }
 
   auto  MiniBuilder::AsWildcard( const mtc::widestr& str ) const -> SubQuery
@@ -585,9 +612,9 @@ namespace queries {
       return { nullptr, 0.0 };
 
     if ( ablocks.size() == 1 )
-      return { new MiniQueryTerm( ablocks.front().first, fWeight ), fWeight };
+      return { new MiniQueryTerm( mkups, ablocks.front().first, fWeight ), fWeight };
 
-    return { new MiniMultiTerm( ablocks ), fWeight };
+    return { new MiniMultiTerm( mkups, ablocks ), fWeight };
   }
 
   auto  MiniBuilder::GetTermIdf( const mtc::widestr& str ) const -> double
@@ -616,10 +643,10 @@ namespace queries {
   }
 
   auto  BuildMiniQuery(
-    const mtc::zval&                query,
-    const mtc::zmap&                terms,
     const mtc::api<IContentsIndex>& index,
-    const context::Processor&       lproc, const FieldHandler& ) -> mtc::api<IQuery>
+    const context::Processor&       lproc,
+    const mtc::zval&                query,
+    const mtc::zmap&                terms ) -> mtc::api<IQuery>
   {
     auto  zterms( terms );
 

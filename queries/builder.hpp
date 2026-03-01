@@ -31,11 +31,10 @@ namespace queries {
     const FieldHandler&             fdset ) -> mtc::api<IQuery>;
 
   auto  BuildMiniQuery(
-    const mtc::zval&                query,
-    const mtc::zmap&                terms,
     const mtc::api<IContentsIndex>& index,
     const context::Processor&       lproc,
-    const FieldHandler&             fdset ) -> mtc::api<IQuery>;
+    const mtc::zval&                query,
+    const mtc::zmap&                terms = {} ) -> mtc::api<IQuery>;
 
 }}
 
