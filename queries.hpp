@@ -31,8 +31,8 @@ namespace queries {
         unsigned uMin;
         union
         {
-          EntryPos ePos;
           unsigned uMax;
+          EntryPos ePos;
         };
       };
       struct Spread
@@ -64,11 +64,13 @@ namespace queries {
 
     struct Factors
     {
-      const BM25Term*  beg = nullptr;
-      const BM25Term*  end = nullptr;
+      const BM25Term*  pbeg = nullptr;
+      const BM25Term*  pend = nullptr;
 
-      bool    empty() const {  return beg == end;  }
-      size_t  size() const  {  return end - beg;  }
+      auto    begin() const -> const BM25Term*  {  return pbeg;  }
+      auto    end() const -> const BM25Term*  {  return pend;  }
+      bool    empty() const {  return pbeg == pend;  }
+      size_t  size() const  {  return pend - pbeg;  }
     };
 
     enum: unsigned
@@ -112,7 +114,7 @@ namespace queries {
   inline
   auto  MakeEntrySet( Abstract::EntrySet& ent, const Abstract::EntryPos& pos, double wht = 0.0 ) -> Abstract::EntrySet&
   {
-    ent.limits = { pos.offset, pos };
+    ent.limits.uMin = (ent.limits.ePos = pos).offset;
     ent.weight = wht;
     ent.spread = { &ent.limits.ePos, 1 + &ent.limits.ePos };
     return ent;
