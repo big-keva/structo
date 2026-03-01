@@ -94,16 +94,64 @@ template <class T>
         return { Function::context, unsigned(1 + arglen) };
       if ( *beg == "cover" )
         return { Function::cover, unsigned(1 + arglen) };
-      if ( *beg == "match" )
+      if ( *beg == "match" || *beg == "equal" )
         return { Function::match, unsigned(1 + arglen) };
     }
     return { Function::Unknown, 0 };
   }
 
+  enum ScanStates: unsigned
+  {
+    ssAtStart = 0,
+    ssBkSlash = 1,
+    ssGetWord = 2,
+    ssWdSlash = 3,
+    ssRetAdd1 = 4,
+    ssSettled = 5,
+    ssInvalid = (unsigned)-1
+  };
+
+  enum TokClasses: unsigned
+  {
+    tcEscape = 0,
+    tcJocker = 1,
+    tcPoints = 2,
+    tcLetter = 3,
+    tcSpaced = 4,
+    tcBroken = (unsigned)-1
+  };
+
+  static ScanStates StateTable[4][5] =
+  {
+/*               \           *?       punct      alnum       space                */
+/* 0  */    { ssBkSlash, ssGetWord, ssSettled, ssGetWord, ssAtStart },
+/* \  */    { ssRetAdd1, ssRetAdd1, ssRetAdd1, ssGetWord, ssSettled },
+/* w  */    { ssSettled, ssGetWord, ssSettled, ssGetWord, ssSettled },
+/* w\ */    { ssGetWord, ssSettled, ssSettled, ssGetWord, ssSettled }
+  };
+
+  inline  auto  TokenClass( const Token& t ) -> TokClasses
+  {
+    if ( t == '\\' )
+      return tcEscape;
+    if ( t == '*' || t == '?' )
+      return tcJocker;
+    if ( t.IsPointing() )
+      return tcPoints;
+    return tcLetter;
+  }
+/*
+          \\     *?     punct   letter  space
+  0       esc   word    ret1    word     0
+  esc     ret1  ret1    ret1    word    ret1
+  word    wesc  word    retL    word    retL
+  wesc    word  retL    retL    word    retL
+*/
+
   auto  GetExpLen( const Token* beg, const Token* end ) -> size_t
   {
     size_t  len;
-    bool    esc;
+    auto    stt = ssAtStart;
 
     if ( beg == end )
       return 0;
@@ -155,10 +203,6 @@ template <class T>
     for ( auto fn = GetFunction( beg, end ); fn.code != Function::Unknown; )
       return fn.size;
 
-// check functions
-//    if ( end - top > 1 && IsFunction( *top ) != func_unknown && top[1] == '(' )
-//      return 1 + GetExprLen( top + 1, end );
-
    /*
     * check if operator
     */
@@ -169,24 +213,22 @@ template <class T>
     * else the expression length is either 1, or, if it is a wildcard expression,
     * a sequence; check if has not escaped * and ?
     */
-    esc = IsChar( *beg, '\\' );
+    stt = StateTable[ssAtStart][TokenClass( beg[0] )];
 
-    for ( len = 1; beg + len != end && !beg[len].LeftSpaced(); ++len )
+    for ( len = 1; beg + len != end && !beg[len].LeftSpaced() && stt != ssSettled; ++len )
     {
-      if ( beg[len].uFlags & context::TextToken::is_punct )
+      switch ( stt = StateTable[stt][TokenClass( beg[len] )] )
       {
-        if ( IsChar( beg[len], '\\' ) ) esc = !esc;
-          else
-        if ( IsChar( beg[len], '*' ) || IsChar( beg[len], '?' ) )
-        {
-          if ( esc )
-            return len > 1 ? len - 1 : len + 1;
-        }
-          else
-        return len;
+        case ssRetAdd1: ++len;
+        case ssSettled: return len;
+        default:        break;
       }
     }
-    return len;
+
+    if ( stt != ssSettled )
+      stt = StateTable[stt][tcSpaced];
+
+    return stt == ssSettled ? len : throw ParseError( "unexpected end of string" );
   }
 
   auto  CreateWord( const Token* ptrtop, const Token* ptrend ) -> mtc::zval
@@ -230,7 +272,7 @@ template <class T>
      /*
       * Проверить одинарные и двойные кавычки для последовательности
       */
-      if ( ptrend - ptrtop > 1
+      if ( (ptrend - ptrtop > 1)
         && (ptrtop[0] == '"' || ptrtop[0] == '\'')
         && (ptrtop[0] == ptrend[-1])
         && GetExpLen( ptrtop, ptrend ) == size_t(ptrend - ptrtop) )
@@ -285,9 +327,9 @@ template <class T>
         return mtc::zmap{ { divide.to_string(), std::move( subset ) } };
       }
 
-      /*
-       * Проверить, не функция ли
-       */
+     /*
+      * Проверить, не функция ли
+      */
       for ( auto fn = GetFunction( ptrtop, ptrend ); fn.code != Function::Unknown && fn.size == ptrend - ptrtop; )
       {
         switch ( fn.code )
@@ -301,19 +343,24 @@ template <class T>
         }
       }
 
-    /*
-     * Разбить последовательность терминов, заранее зная, что как минимум первый в ряду - именно
-     * термин, а не функция, не скобочная конструкция и не цитата
-     *
-     * Создать первый элемент в последовательном разбиении фразы без операторов и функций
-     */
-      subset.emplace_back( CreateWord( ptrtop, ptrtop + (explen = GetExpLen( ptrtop, ptrend )) ) );
+     /*
+      * Проверить однословный термин
+      */
+      if ( (explen = GetExpLen( ptrtop, ptrend )) == size_t(ptrend - ptrtop) )
+        return CreateWord( ptrtop, ptrend );
 
-      for ( auto pwnext = ptrtop + explen; pwnext != ptrend; pwnext += explen )
+     /*
+      * Разбить последовательность терминов, заранее зная, что как минимум первый в ряду - именно
+      * термин, а не функция, не скобочная конструкция и не цитата
+      *
+      * Создать первый элемент в последовательном разбиении фразы без операторов и функций
+      */
+      for ( auto pwnext = ptrtop; pwnext != ptrend; )
       {
-        explen = GetExpLen( pwnext, ptrend );
-
         subset.emplace_back( ParseQuery( pwnext, pwnext + explen ) );
+
+        if ( (pwnext += explen) < ptrend )
+          explen = GetExpLen( pwnext, ptrend );
       }
 
      /*

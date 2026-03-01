@@ -9,6 +9,7 @@ namespace queries {
   class ParseError: public std::invalid_argument {  using std::invalid_argument::invalid_argument;  };
 
   auto  ParseQuery( const widechar*, size_t = -1 ) -> mtc::zval;
+
   template <class Allocator>
   auto  ParseQuery( const std::basic_string<widechar, std::char_traits<widechar>, Allocator>& str ) -> mtc::zval
     {  return ParseQuery( str.c_str(), str.size() );  }
