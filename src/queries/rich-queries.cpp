@@ -526,7 +526,7 @@ namespace queries {
             hasAny &= ++next.abstract.entries.pbeg != next.abstract.entries.pend;
         }
 
-        *outEnt++ = { { limits.uLower, { limits.uUpper, 0 } }, weight, { outOrg, outPos } };
+        *outEnt++ = { { limits.uLower, limits.uUpper }, weight, { outOrg, outPos } };
       }
       abstract = { Abstract::Rich, 0, { entryBuf.data(), outEnt } };
     }
@@ -603,7 +603,7 @@ namespace queries {
             return abstract = { Abstract::Rich, 0, { entryBuf.data(), outEnt } };
         }
 
-        *outEnt++ = { { uLower, unsigned(uLower + querySet.size() - 1), 0 }, 1.0 - weight,
+        *outEnt++ = { { uLower, unsigned(uLower + querySet.size() - 1) }, 1.0 - weight,
           { outPos - querySet.size(), outPos } };
       }
       abstract = { Abstract::Rich, 0, { entryBuf.data(), outEnt } };
@@ -673,6 +673,9 @@ namespace queries {
     }
     if ( weight < quorum )
       return entityId = uint32_t(-1);
+
+    for ( auto& next: querySet )
+      next.SearchDoc( ufound );
 
     return entityId = ufound;
   }
@@ -751,7 +754,7 @@ namespace queries {
         // check if loaded
           if ( nquery >= loaded )
           {
-            querySet[nquery].GetChunks( udocid, format, { qLower, uUpper + 30 } );
+            querySet[nquery].GetChunks( udocid, format, { qLower, uUpper + 100 } );
             loaded = nquery + 1;
           }
 
@@ -801,7 +804,7 @@ namespace queries {
               uUpper = std::max( uUpper, rquery.abstract.entries.pbeg->limits.uMax );
             }
 
-          *outEnt++ = { { uLower, { uUpper, 0 } }, weight, { outOrg, outPos } };
+          *outEnt++ = { { uLower, uUpper }, weight, { outOrg, outPos } };
         }
 
         ++pLower->pbeg;
@@ -958,34 +961,49 @@ namespace queries {
 
   // RichQueryMatch implementation
 
-  Abstract& RichQueryMatch::GetChunks( uint32_t id, mtc::span<const char> format, const Limits& limits )
+  Abstract& RichQueryMatch::GetChunks( uint32_t id, mtc::span<const char> ft, const Limits& limits )
   {
     if ( id == entityId && abstract.dwMode != abstract.Rich )
     {
-      /*
-      auto  subEnt = subQuery->GetChunks( id, format, minpos );
-      auto  tagBeg = format.data();
-      auto  tagEnd = format.data() + format.size();
+      auto  format = context::formats::FormatBox( ft );
+      auto  fmtbeg = format.begin();
+      auto  fmtend = format.end();
       auto  outPtr = entryBuf;
+      bool  hasAny;
 
-      for ( ; subEnt.entries.pbeg != subEnt.entries.pend && tagBeg != tagEnd; ++subEnt.entries.pbeg )
+      // skip until the first matching format
+      while ( (hasAny = fmtbeg != fmtend) && !mtc::bitset_get( matchSet, fmtbeg->format ) )
+        ++fmtbeg;
+
+      // request entry chunks
+      if ( hasAny )
       {
-        while ( tagBeg != tagEnd && tagBeg->uLower < subEnt.entries.pbeg->limits.uMin && !mtc::bitset_get( matchSet, tagBeg->format ) )
-          ++tagBeg;
-        if ( tagBeg == tagEnd )
-          break;
-        while ( subEnt.entries.pbeg != subEnt.entries.pend && subEnt.entries.pbeg->limits.uMin < tagBeg->uLower )
-          ++subEnt.entries.pbeg;
-        if ( subEnt.entries.pbeg == subEnt.entries.pend )
-          break;
-        if ( tagBeg->uLower == subEnt.entries.pbeg->limits.uMin
-          && tagBeg->uUpper == subEnt.entries.pbeg->limits.uMax )
-            *outPtr++ = *subEnt.entries.pbeg;
+        auto  entset = subQuery->GetChunks( id, ft, { std::max( limits.uLower, fmtbeg->uLower ), limits.uUpper  } );
+
+        for ( ; entset.entries.pbeg != entset.entries.pend && fmtbeg != fmtend; ++entset.entries.pbeg )
+        {
+          while ( fmtbeg != fmtend && fmtbeg->uUpper < entset.entries.pbeg->limits.uMax && !mtc::bitset_get( matchSet, fmtbeg->format ) )
+            ++fmtbeg;
+
+          if ( fmtbeg == fmtend )
+            break;
+
+          while ( entset.entries.pbeg != entset.entries.pend && entset.entries.pbeg->limits.uMin < fmtbeg->uLower )
+            ++entset.entries.pbeg;
+
+          if ( entset.entries.pbeg == entset.entries.pend )
+            break;
+
+          if ( fmtbeg->uLower == entset.entries.pbeg->limits.uMin
+            && fmtbeg->uUpper == entset.entries.pbeg->limits.uMax )
+          {
+            *outPtr++ = *entset.entries.pbeg;
+          }
+        }
       }
 
       if ( outPtr != entryBuf )
         abstract = { Abstract::Rich, 0, { entryBuf, outPtr } };
-      */
     }
     return abstract;
   }
