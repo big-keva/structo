@@ -38,6 +38,16 @@ namespace posixFS {
   StoragePolicies::StoragePolicies( const Policy* policies, size_t n ):
     StoragePolicies( policies, policies + n ) {}
 
+  StoragePolicies::StoragePolicies( const std::string& generic_path ):
+    StoragePolicies( { { Unit( (bulletin << 1) - 1 ), memory_mapped, generic_path } } )
+  {
+  }
+
+  StoragePolicies::StoragePolicies( const char* generic_path ):
+    StoragePolicies( { { Unit( (bulletin << 1) - 1 ), memory_mapped, generic_path } } )
+  {
+  }
+
   StoragePolicies::StoragePolicies( StoragePolicies&& policies ):
     impl( policies.impl )
   {

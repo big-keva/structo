@@ -44,6 +44,8 @@ namespace posixFS {
     StoragePolicies() = default;
     StoragePolicies( std::initializer_list<Policy> );
     StoragePolicies( const Policy*, size_t );
+    StoragePolicies( const std::string& );
+    StoragePolicies( const char* );
     template <class It>
     StoragePolicies( It, It );
     StoragePolicies( StoragePolicies&& );
