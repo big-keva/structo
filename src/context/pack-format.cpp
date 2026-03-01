@@ -76,46 +76,44 @@ namespace formats {
   // Unpack formats family
 
   template <class FnFormat>
-  void  Unpack( FnFormat  fAdd, const char*& pbeg, const char* pend, unsigned base = 0 )
+  auto  Unpack( FnFormat  fAdd, const char* pbeg, const char* pend, unsigned base = 0 ) -> const char*
   {
     unsigned  format;
     unsigned  ulower;
     unsigned  uupper;
+    unsigned  sublen;
 
-    if ( (pbeg = ::FetchFrom( ::FetchFrom( ::FetchFrom( pbeg,
-      format ),
-      ulower ),
-      uupper )) != nullptr )
+    while ( pbeg != pend )
     {
-      unsigned  sublen;
+      if ( (pbeg = ::FetchFrom( ::FetchFrom( ::FetchFrom( pbeg,
+        format ),
+        ulower ),
+        uupper )) != nullptr )
+      {
+        fAdd( { format >> 1, ulower + base, ulower + base + uupper } );
 
-      fAdd( { format >> 1, ulower + base, ulower + base + uupper } );
+        if ( (format & 1) != 0 )
+        {
+          pbeg = ::FetchFrom( pbeg, sublen );
 
-      if ( (format & 1) != 0 && (pbeg = ::FetchFrom( pbeg, sublen )) != nullptr )
-        for ( auto plim = std::min( pbeg + sublen, pend ); pbeg != plim; )
-          /*pbeg = */Unpack( fAdd, pbeg, plim, ulower + base );
+          for ( auto plim = pbeg + sublen; pbeg != plim; )
+            pbeg = Unpack( fAdd, pbeg, pbeg + sublen, ulower + base );
+        }
+      }
     }
+    return pbeg;
   }
 
-  inline
-  auto  Unpack(
-    RankerTag*    tbeg,
-    RankerTag*    tend,
-    const char*&  pbeg,
-    const char*   pend,
-    unsigned      base = 0 ) -> size_t
+  auto  Unpack( RankerTag* tbeg, RankerTag* tend, const char*& pbeg, const char* pend, unsigned base = 0 ) -> size_t
   {
     auto  torg( tbeg );
-    int   size;
 
-    if ( (pbeg = ::FetchFrom( pbeg, size )) == nullptr || pbeg == pend )
-      return 0;
-
-    while ( size-- > 0 && tbeg != tend )
+    while ( tbeg < tend && pbeg < pend )
     {
       unsigned  format;
       unsigned  ulower;
       unsigned  uupper;
+      unsigned  sublen;
 
       if ( (pbeg = ::FetchFrom( ::FetchFrom( ::FetchFrom( pbeg,
         format ),
@@ -123,17 +121,21 @@ namespace formats {
         uupper )) == nullptr )
       break;
 
-      *tbeg++ = { format >> 1, ulower + base, ulower + base + uupper };
+      tbeg[0] = { format >> 1, ulower + base, ulower + base + uupper, 0 };
 
-      if ( format & 1 )
-        tbeg += Unpack( tbeg, tend, pbeg, pend, ulower + base );
+      if ( (format & 1) != 0 )
+      {
+        pbeg = ::FetchFrom( pbeg, sublen );
+          tbeg->length = Unpack( tbeg + 1, tend, pbeg, pbeg + sublen, ulower + base );
+        tbeg += tbeg->length;
+      }
+
+      ++tbeg;
     }
     return tbeg - torg;
   }
 
-  auto  Unpack(
-    RankerTag*  tbeg, RankerTag*  tend,
-    const char* pbeg, const char* pend ) -> size_t
+  auto  Unpack( RankerTag*  tbeg, RankerTag*  tend, const char* pbeg, const char* pend ) -> size_t
   {
     return Unpack( tbeg, tend, pbeg, pend, 0 );
   }
@@ -143,13 +145,13 @@ namespace formats {
     auto  vout = std::vector<RankerTag>();
     auto  sptr = pack.data();
 
-    Unpack( [&]( const RankerTag& tag )
-      {  vout.push_back( tag );  }, sptr, pack.end(), 0 );
+    Unpack( [&]( const RankerTag& tag ){  vout.push_back( tag );  },
+      sptr, pack.end(), 0 );
 
     return vout;
   }
 
-  void  Unpack( std::function<void( const RankerTag& )> fAdd, const char* pbeg, const char* pend )
+  auto  Unpack( std::function<void( const RankerTag& )> fAdd, const char* pbeg, const char* pend ) -> const char*
   {
     return Unpack( fAdd, pbeg, pend, 0 );
   }
