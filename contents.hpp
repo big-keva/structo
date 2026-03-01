@@ -10,7 +10,26 @@ namespace structo
 {
   struct IEntity;             // common object properties
   struct IStorage;            // data collections interface
-  struct IContents;           // indexable entity properties interface
+
+  struct EntryView
+  {
+    std::string_view  key;
+    std::string_view  val;
+    unsigned          bid;
+
+    EntryView() = default;
+    EntryView( const EntryView& ) = default;
+    EntryView( const std::string_view& k, const std::string_view& v = {}, unsigned b = 0 ):
+      key( k ), val( v ), bid( b )  {}
+  };
+/*
+  struct EntryPack: mtc::span<const EntryView>
+  {
+    using span::span;
+
+    EntryPack( const std::initializer_list<EntryView>& l ): span( l ) {}
+  };
+ */
 
   class EntityId: public std::string_view, protected mtc::api<const mtc::Iface>
   {
@@ -137,9 +156,9 @@ namespace structo
     * and indexable properties
     */
     virtual auto  SetEntity( EntityId,
-      mtc::api<const IContents> keys = {},
-      const std::string_view&   xtra = {},
-      const std::string_view&   beef = {} ) -> mtc::api<const IEntity> = 0;
+      const mtc::span<const EntryView>& keys = {},
+      const std::string_view&           xtra = {},
+      const std::string_view&           beef = {} ) -> mtc::api<const IEntity> = 0;
 
    /*
     * SetExtras()
@@ -223,18 +242,6 @@ namespace structo
   {
     virtual auto  Curr() -> std::string = 0;
     virtual auto  Next() -> std::string = 0;
-  };
-
- /*
-  * IContents - keys indexing API provided to IContentsIndex::SetEntity()
-  *
-  * Method is called with single interface argument to send (key; value)
-  * pairs to contents index
-  */
-  struct IContents: mtc::Iface
-  {
-    virtual void  Enum( IContentsIndex::IIndexAPI* ) const = 0;
-            void  List( std::function<void(const std::string_view&, const std::string_view&, unsigned)> );
   };
 
   inline
