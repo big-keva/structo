@@ -15,6 +15,8 @@ namespace layered {
     std::chrono::seconds  runMonitorDelay = std::chrono::seconds( 0 );
 
   public:
+    Index( mtc::api<IStorage> );
+
     auto  Set( const dynamic::Settings& ) -> Index&;
     auto  Set( mtc::api<IStorage> ) -> Index&;
     auto  Create() -> mtc::api<IContentsIndex>;
