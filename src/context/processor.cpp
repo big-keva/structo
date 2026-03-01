@@ -72,4 +72,20 @@ namespace context {
       (*bcktop++)->uUpper = uint32_t(tokens.size()) - 1;
   }
 
+  auto  Processor::Normalize( DeliriX::Text& wtext, const DeliriX::ITextView& input ) const -> const DeliriX::ITextView*
+  {
+    auto    texts = input.GetBlocks();
+    bool    useCp = false;
+
+    // check if image is utf16
+    for ( auto it = texts.begin(); !useCp && it != texts.end(); ++it )
+      useCp = it->GetWideStr().data() == nullptr;
+
+    // if need normalization, create alternate document text
+    if ( !useCp )
+      return &input;
+
+    return CopyUtf16( &wtext, input ), &wtext;
+  }
+
 }}
