@@ -20,6 +20,14 @@ namespace context {
     return !(k == s);
   }
 
+  bool  is_one_of( const mtc::zmap::key& k, const std::initializer_list<const char*>& s )
+  {
+    for ( auto next: s )
+      if ( k == next )
+        return true;
+    return false;
+  }
+
   struct OptionsValue: FieldOptions
   {
     std::string namePlace;
@@ -157,9 +165,9 @@ namespace context {
       if ( !next.first.is_charstr() )
         throw std::invalid_argument( "field indents may contain only string keys" );
 
-      if ( strcmp( next.first.to_charstr(), "min" ) == 0 )  GetValue( to.min, next.second, "min" );
+      if ( next.first == "min" )  GetValue( to.min, next.second, "min" );
         else
-      if ( strcmp( next.first.to_charstr(), "max" ) == 0 )  GetValue( to.max, next.second, "max" );
+      if ( next.first == "max" )  GetValue( to.max, next.second, "max" );
         else
       throw std::invalid_argument( "field indents may contain only string keys 'min' and 'max'" );
     }
@@ -175,9 +183,9 @@ namespace context {
       if ( next.second.get_type() != mtc::zval::z_zmap )
         throw std::invalid_argument( "field 'indents' has to have struct values" );
 
-      if ( next.first == "l" )  LoadMinMax( opts.indents.lower, *next.second.get_zmap() );
+      if ( is_one_of( next.first, { "l", "lower" } ) )  LoadMinMax( opts.indents.lower, *next.second.get_zmap() );
         else
-      if ( next.first == "h" )  LoadMinMax( opts.indents.upper, *next.second.get_zmap() );
+      if ( is_one_of( next.first, { "h", "upper" } ) )  LoadMinMax( opts.indents.upper, *next.second.get_zmap() );
         else
       throw std::invalid_argument( "field 'indents' has to have only 'l' and 'h' keys" );
     }
