@@ -99,6 +99,14 @@ namespace formats {
   }
 
   auto  Unpack( const mtc::span<const char>& ) -> std::vector<RankerTag>;
+  auto  Unpack( const mtc::span<const char>& pack ) -> std::vector<RankerTag>;
+  auto  Unpack( std::function<void( const RankerTag& )> fAdd, const char* pbeg, const char* pend ) -> const char*;
+
+  inline
+  void  Unpack( std::function<void( const RankerTag& )> fAdd, const mtc::span<const char>& pack )
+  {
+    return (void)Unpack( fAdd, pack.data(), pack.data() + pack.size() );
+  }
 
   // FormatBox::TLevel inline implementation
 
