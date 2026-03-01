@@ -193,7 +193,7 @@ namespace fusion {
       auto  diffId = reference.uEntity - uOldId - 1;
       auto  nbytes = reference.details.size();
 
-      if ( secptr > gapptr || nitems++ > max_docids )
+      if ( secptr + nbytes > gapptr || nitems++ > max_docids )
         fFlush( true );
 
       secptr = ::Serialize( ::Serialize( ::Serialize( secptr,
