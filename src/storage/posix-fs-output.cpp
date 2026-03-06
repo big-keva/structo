@@ -31,6 +31,11 @@ namespace structo {
 namespace storage {
 namespace posixFS {
 
+ /*
+  * linux-specific implementation
+  */
+  auto  CreateOutputStream( const char* filepath ) -> mtc::api<mtc::IByteStream>;
+
   class Sink final: public IStorage::IIndexStore
   {
     std::atomic_long  referenceCounter = 0;
@@ -216,13 +221,13 @@ namespace posixFS {
     Sink  aSink( policies.GetInstance( stamp ) );
 
   // OK, the list of files is captured; create the sink
-    aSink.entities = mtc::OpenBufStream( aSink.policies.GetPolicy( entities )
-      ->GetFilePath( entities ).c_str(), O_RDWR, 0x8000, mtc::enable_exceptions );
-    aSink.contents = mtc::OpenBufStream( aSink.policies.GetPolicy( contents )
-      ->GetFilePath( contents ).c_str(), O_RDWR, 0x8000, mtc::enable_exceptions );
-    aSink.linkages   = mtc::OpenBufStream( aSink.policies.GetPolicy( linkages )
-      ->GetFilePath( linkages ).c_str(), O_RDWR, 0x8000, mtc::enable_exceptions );
-    aSink.packages   = CreateDumpStore( mtc::OpenFileStream( aSink.policies.GetPolicy( packages )
+    aSink.entities = CreateOutputStream( aSink.policies.GetPolicy( entities )
+      ->GetFilePath( entities ).c_str() );
+    aSink.contents = CreateOutputStream( aSink.policies.GetPolicy( contents )
+      ->GetFilePath( contents ).c_str() );
+    aSink.linkages = CreateOutputStream( aSink.policies.GetPolicy( linkages )
+      ->GetFilePath( linkages ).c_str() );
+    aSink.packages = CreateDumpStore( mtc::OpenFileStream( aSink.policies.GetPolicy( packages )
       ->GetFilePath( packages ).c_str(), O_RDWR ).ptr() );
 
     return new Sink( std::move( aSink ) );

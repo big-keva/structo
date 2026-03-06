@@ -57,6 +57,7 @@ namespace context {
     }
     void  MapMarkup( mtc::span<MarkupTag>,
       const mtc::span<const TextToken>& ) const;
+    auto  Normalize( DeliriX::Text&, const DeliriX::ITextView& ) const -> const DeliriX::ITextView*;
 
   protected:
     std::vector<Lemmatizer>  languages;
@@ -181,14 +182,16 @@ namespace context {
   auto  Processor::WordBreak( BaseImage<Allocator>& body, const ITextView& input,
     const FieldHandler* fdset ) const -> BaseImage<Allocator>&
   {
-    std::vector<uint64_t>  nonBrk;
-    uint32_t               offset = 0;
+    auto  wcText = DeliriX::Text();
+    auto  inView = Normalize( wcText, input );
+    auto  nonBrk = std::vector<uint64_t>();
+    auto  offset = uint32_t(0);
 
     body.clear();
 
     // create non-breakable limits
     if ( fdset != nullptr )
-      for ( auto& markup: input.GetMarkup() )
+      for ( auto& markup: inView->GetMarkup() )
       {
         auto  pfield = fdset->Get( markup.tagKey );
 
@@ -202,7 +205,7 @@ namespace context {
       }
 
     // list all blocks
-    for ( auto beg = input.GetBlocks().begin(); beg != input.GetBlocks().end(); offset += (beg++)->GetTextSize() )
+    for ( auto beg = inView->GetBlocks().begin(); beg != inView->GetBlocks().end(); offset += (beg++)->GetTextSize() )
     {
       auto  sblock = beg->GetWideStr();
       auto  buforg = body.AddBuffer( sblock.data(), sblock.size() );

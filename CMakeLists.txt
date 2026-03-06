@@ -37,8 +37,11 @@ if (NOT TARGET mtc)
 	add_subdirectory(contrib/mtc)
 endif()
 
+if (NOT TARGET DeliriX)
+	add_subdirectory(contrib/DeliriX)
+endif()
+
 add_library(structo
-	src/contents.cpp
 	src/primes.cpp
 
 	src/context/lemmatizer.cpp
@@ -69,12 +72,16 @@ add_library(structo
 	src/queries/rich-queries.cpp
 	src/queries/mini-queries.cpp
 
+        src/rankers/bm25.cpp
+
 	src/storage/posix-fs-output.cpp
 	src/storage/posix-fs-serial.cpp
 	src/storage/posix-fs-storage.cpp
 	src/storage/posix-fs-policies.cpp
-	src/storage/posix-fs-dump-store.cpp)
+	src/storage/posix-fs-dump-store.cpp
+	src/storage/linux-fs-output-direct.cpp)
 
-# add_subdirectory(addon)
 add_subdirectory(tests)
 add_subdirectory(utils)
+
+add_subdirectory(samples)
