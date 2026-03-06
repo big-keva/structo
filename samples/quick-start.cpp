@@ -58,11 +58,11 @@ int   main( int argc, char* argv[] )
     auto  xManager = indexer::layered::Index( xStorage ).Create();
 
   // 3. Insert documents
-    xManager->SetEntity( "doc-1", GetMiniContents( lingproc.MakeImage( DeliriX::Text{
+    xManager->SetEntity( "doc-1", MiniContents( lingproc.MakeImage( DeliriX::Text{
       "Простой текст: документ из двух текстовых блоков.",
       "Каждый блок - строка." } ) ) );
 
-    xManager->SetEntity( "doc-2", GetMiniContents( lingproc.MakeImage( DeliriX::Text{
+    xManager->SetEntity( "doc-2", MiniContents( lingproc.MakeImage( DeliriX::Text{
       "Это второй документ из одного блока - строки." } ) ) );
 
     FindDocuments( xManager, lingproc, "Документ" );          // try find 'string block' (2 entities)

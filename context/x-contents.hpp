@@ -43,13 +43,23 @@ namespace context {
 
   template <class Allocator>
   auto  MiniContents( const BaseImage<Allocator>& image ) -> Contents
-    {  return GetMiniContents( image.GetLemmas(), image.GetMarkup() );  }
+  {
+    extern FieldHandler& GetStubFields();
+
+    return GetMiniContents( image.GetLemmas(), image.GetMarkup(), GetStubFields() );
+  }
   template <class Allocator>
   auto  BM25Contents( const BaseImage<Allocator>& image ) -> Contents
-    {  return GetBM25Contents( image.GetLemmas(), image.GetMarkup() );  }
+  {
+    extern FieldHandler& GetStubFields();
+
+    return GetBM25Contents( image.GetLemmas(), image.GetMarkup(), GetStubFields() );
+  }
   template <class Allocator>
   auto  RichContents( const BaseImage<Allocator>& image, FieldHandler& fdset ) -> Contents
-    {  return GetRichContents( image.GetLemmas(), image.GetMarkup(), fdset );  }
+  {
+    return GetRichContents( image.GetLemmas(), image.GetMarkup(), fdset );
+  }
 
 }}
 

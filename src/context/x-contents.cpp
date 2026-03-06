@@ -7,6 +7,15 @@
 namespace structo {
 namespace context {
 
+  class StubFields: public FieldHandler
+  {
+    auto  Add( const std::string_view& ) ->             FieldOptions* override {  return nullptr;  }
+    auto  Get( const std::string_view& ) const -> const FieldOptions* override {  return nullptr;  }
+    auto  Get( unsigned                ) const -> const FieldOptions* override {  return nullptr;  }
+  };
+
+  static  StubFields stubFields;
+
   struct Contents::impl
   {
     std::vector<EntryView> entryViews;
@@ -492,6 +501,11 @@ namespace context {
       *entryFilling->pend++ = { pos, fid };
       ++entriesCount;
     }
+  }
+
+  auto  GetStubFields() -> FieldHandler&
+  {
+    return stubFields;
   }
 
 }}
