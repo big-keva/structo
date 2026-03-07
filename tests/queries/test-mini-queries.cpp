@@ -37,9 +37,8 @@ auto  CreateMiniIndex( const context::Processor& lp, const std::initializer_list
     lp.Lemmatize(
     lp.WordBreak( ucBody, ucText ) ), ucText );
 
-//    ucBody.Serialize( dump_as::Json( dump_as::MakeOutput( stdout ) ) );
-    auto  ximage = GetMiniContents( ucBody.GetLemmas(), ucBody.GetMarkup(), fieldMan );
-    ct->SetEntity( mtc::strprintf( "doc-%u", id++ ), ximage.ptr() );
+    ct->SetEntity( mtc::strprintf( "doc-%u", id++ ),
+      GetMiniContents( ucBody.GetLemmas(), ucBody.GetMarkup(), fieldMan ) );
   }
   return ct;
 }
@@ -69,16 +68,16 @@ TestItEasy::RegisterFunc  test_mini_queries( []()
 
       SECTION( "* invalid query causes std::invalid_argument" )
       {
-        REQUIRE_EXCEPTION( query = queries::BuildMiniQuery( {}, {}, xx, lp, fieldMan ), std::invalid_argument );
+        REQUIRE_EXCEPTION( query = queries::BuildMiniQuery( xx, lp, {} ), std::invalid_argument );
       }
       SECTION( "* for non-collection term the query is empty" )
       {
-        if ( REQUIRE_NOTHROW( query = queries::BuildMiniQuery( "Платон", {}, xx, lp, fieldMan ) ) )
+        if ( REQUIRE_NOTHROW( query = queries::BuildMiniQuery( xx, lp, "Платон" ) ) )
           REQUIRE( query == nullptr );
       }
       SECTION( "* existing term produces a query" )
       {
-        if ( REQUIRE_NOTHROW( query = queries::BuildMiniQuery( "Городской", {}, xx, lp, fieldMan ) )
+        if ( REQUIRE_NOTHROW( query = queries::BuildMiniQuery( xx, lp, "Городской" ) )
           && REQUIRE( query != nullptr ) )
         {
           if ( REQUIRE( query->SearchDoc( 1 ) == 1 ) )
@@ -96,7 +95,7 @@ TestItEasy::RegisterFunc  test_mini_queries( []()
             REQUIRE( abstract.factors.size() == 1 );
           }
         }
-        if ( REQUIRE_NOTHROW( query = queries::BuildMiniQuery( "фонарь", {}, xx, lp, fieldMan ) )
+        if ( REQUIRE_NOTHROW( query = queries::BuildMiniQuery( xx, lp, "фонарь", {} ) )
           && REQUIRE( query != nullptr ) )
         {
           if ( REQUIRE( query->SearchDoc( 1 ) == 1 ) )
@@ -115,8 +114,8 @@ TestItEasy::RegisterFunc  test_mini_queries( []()
       }
       SECTION( "* wildcard produces a complex query " )
       {
-        if ( REQUIRE_NOTHROW( query = queries::BuildMiniQuery( mtc::zmap{
-          { "wildcard", "с*й" } }, {}, xx, lp, fieldMan ) ) && REQUIRE( query != nullptr ) )
+        if ( REQUIRE_NOTHROW( query = queries::BuildMiniQuery( xx, lp, mtc::zmap{
+          { "wildcard", "с*й" } }, {} ) ) && REQUIRE( query != nullptr ) )
         {
           if ( REQUIRE( query->SearchDoc( 1 ) == 1 ) )
             REQUIRE( query->GetTuples( 1 ).factors.size() == 1 );
@@ -128,7 +127,8 @@ TestItEasy::RegisterFunc  test_mini_queries( []()
       }
       SECTION( "* && query finds entities with both words" )
       {
-        if ( REQUIRE_NOTHROW( query = queries::BuildMiniQuery( mtc::zmap{ { "&&", mtc::array_zval{ "городской", "фонарь" } } }, {}, xx, lp, fieldMan ) )
+        if ( REQUIRE_NOTHROW( query = queries::BuildMiniQuery( xx, lp, mtc::zmap{
+          {  "&&", mtc::array_zval{ "городской", "фонарь" } } }, {} ) )
           && REQUIRE( query != nullptr ) )
         {
           if ( REQUIRE( query->SearchDoc( 1 ) == 1 ) )
@@ -142,7 +142,8 @@ TestItEasy::RegisterFunc  test_mini_queries( []()
       }
       SECTION( "* || query finds entities with any word" )
       {
-        if ( REQUIRE_NOTHROW( query = queries::BuildMiniQuery( mtc::zmap{ { "||", mtc::array_zval{ "городской", "фонарь" } } }, {}, xx, lp, fieldMan ) )
+        if ( REQUIRE_NOTHROW( query = queries::BuildMiniQuery( xx, lp, mtc::zmap{
+          { "||", mtc::array_zval{ "городской", "фонарь" } } }, {} ) )
           && REQUIRE( query != nullptr ) )
         {
           if ( REQUIRE( query->SearchDoc( 1 ) == 1 ) )
@@ -170,7 +171,8 @@ TestItEasy::RegisterFunc  test_mini_queries( []()
       }
       SECTION( "* 'quote' query produces same result as strict '&&' query" )
       {
-        if ( REQUIRE_NOTHROW( query = queries::BuildMiniQuery( mtc::zmap{ { "quote", mtc::array_zval{ "старый", "фонарь" } } }, {}, xx, lp, fieldMan ) )
+        if ( REQUIRE_NOTHROW( query = queries::BuildMiniQuery( xx, lp, mtc::zmap{
+          { "quote", mtc::array_zval{ "старый", "фонарь" } } }, {} ) )
           && REQUIRE( query != nullptr ) )
         {
           if ( REQUIRE( query->SearchDoc( 1 ) == 1 ) )
@@ -191,8 +193,9 @@ TestItEasy::RegisterFunc  test_mini_queries( []()
       }
       SECTION( "* fuzzy query searches best entries using query quorum" )
       {
-        if ( REQUIRE_NOTHROW( query = queries::BuildMiniQuery( mtc::zmap{ { "fuzzy", mtc::array_zval{ "городской", "фонарь" } } },
-            MakeStats( { { "городской", 0.7 }, { "фонарь", 0.05 } } ), xx, lp, fieldMan ) )
+        if ( REQUIRE_NOTHROW( query = queries::BuildMiniQuery( xx, lp, mtc::zmap{
+          { "fuzzy",
+            mtc::array_zval{ "городской", "фонарь" } } }, MakeStats( { { "городской", 0.7 }, { "фонарь", 0.05 } } ) ) )
           && REQUIRE( query != nullptr ) )
         {
           if ( REQUIRE( query->SearchDoc( 1 ) == 1 ) )

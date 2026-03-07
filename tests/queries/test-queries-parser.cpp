@@ -112,7 +112,7 @@ TestItEasy::RegisterFunc  test_parser( []()
             { { "wildcard", "a*" } },
             { { "wildcard", "?*b" } } } } } ) );
       }
-      SECTION( "'*' and '?' escaped by '\\' are treated as regular characters" )
+      SECTION( "* and ? escaped by \\ are treated as regular characters" )
       {
         REQUIRE( mtc::to_string( queries::ParseQuery( "a\\*" ) ) == mtc::to_string( mtc::zmap{
           { "fuzzy", mtc::array_charstr{ "a", "*" } } } ) );

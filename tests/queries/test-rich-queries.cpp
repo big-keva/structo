@@ -39,7 +39,7 @@ auto  CreateRichIndex( const context::Processor& lp, const std::initializer_list
 
 //    ucBody.Serialize( dump_as::Json( dump_as::MakeOutput( stdout ) ) );
     ct->SetEntity( mtc::strprintf( "doc-%u", id++ ),
-      GetRichContents( ucBody.GetLemmas(), ucBody.GetMarkup(), fieldMan ).ptr() );
+      GetRichContents( ucBody.GetLemmas(), ucBody.GetMarkup(), fieldMan ) );
   }
   return ct;
 }
