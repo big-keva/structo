@@ -9,29 +9,6 @@
 using namespace structo;
 using namespace structo::indexer;
 
-class KeyValues: public IContents, protected mtc::zmap
-{
-  implement_lifetime_stub
-
-public:
-  KeyValues( const mtc::zmap& keyval ):
-    zmap( keyval )  {}
-
-  auto  ptr() const -> const IContents*
-    {  return this;  }
-
-  void  Enum( IContentsIndex::IIndexAPI* to ) const override
-    {
-      for ( auto keyvalue: *this )
-      {
-        auto  val = keyvalue.second.to_string();
-
-        to->Insert( { (const char*)keyvalue.first.data(), keyvalue.first.size() },
-          { val.data(), val.size() }, unsigned(-1) );
-      }
-    }
-};
-
 TestItEasy::RegisterFunc  static_contents( []()
   {
     TEST_CASE( "index/static-contents" )
@@ -44,18 +21,18 @@ TestItEasy::RegisterFunc  static_contents( []()
         REQUIRE_NOTHROW( contents = dynamic::Index()
           .Set( storage::posixFS::CreateSink( storage::posixFS::StoragePolicies::Open(
             GetTmpPath() + "k2" ) ) ).Create() );
-        REQUIRE_NOTHROW( contents->SetEntity( "aaa", KeyValues( {
-            { "aaa", 1161 },
-            { "bbb", 1262 },
-            { "ccc", 1263 } } ).ptr() ) );
-        REQUIRE_NOTHROW( contents->SetEntity( "bbb", KeyValues( {
-            { "bbb", 1262 },
-            { "ccc", 1263 },
-            { "ddd", 1264 } } ).ptr() ) );
-        REQUIRE_NOTHROW( contents->SetEntity( "ccc", KeyValues( {
-            { "ccc", 1263 },
-            { "ddd", 1264 },
-            { "eee", 1265 } } ).ptr() ) );
+        REQUIRE_NOTHROW( contents->SetEntity( "aaa", {
+            { "aaa", "block-a" },
+            { "bbb", "block-b" },
+            { "ccc", "block-c" } } ) );
+        REQUIRE_NOTHROW( contents->SetEntity( "bbb", {
+            { "bbb", "another-block-b" },
+            { "ccc", "another-block-c" },
+            { "ddd", "another-block-d" } } ) );
+        REQUIRE_NOTHROW( contents->SetEntity( "ccc", {
+            { "ccc", "mode-data-c" },
+            { "ddd", "mode-data-d" },
+            { "eee", "mode-data-e" } } ) );
         REQUIRE_NOTHROW( contents->DelEntity( "bbb" ) );
         REQUIRE_NOTHROW( serialized = contents->Commit() );
 

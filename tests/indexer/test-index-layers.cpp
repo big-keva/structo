@@ -3,36 +3,14 @@
 # include "../../indexer/dynamic-contents.hpp"
 # include "../../indexer/static-contents.hpp"
 # include "../toolbox/tmppath.h"
+# include "test-contents-helpers.hpp"
 # include <mtc/test-it-easy.hpp>
 # include <mtc/zmap.h>
 
 using namespace structo;
 using namespace structo::indexer;
 
-class KeyValues: public IContents, protected mtc::zmap
-{
-  implement_lifetime_stub
-
-public:
-  KeyValues( const mtc::zmap& keyval ):
-    zmap( keyval )  {}
-
-  auto  ptr() const -> const IContents*
-  {  return this;  }
-
-  void  Enum( IContentsIndex::IIndexAPI* to ) const override
-  {
-    for ( auto keyvalue: *this )
-    {
-      auto  val = keyvalue.second.to_string();
-
-      to->Insert( { (const char*)keyvalue.first.data(), keyvalue.first.size() },
-        { val.data(), val.size() }, unsigned(-1) );
-    }
-  }
-};
-
-auto  CreateDynamicIndex( const mtc::zmap& ix ) -> mtc::api<IContentsIndex>
+auto  CreateDynamicIndex( const std::map<const char*, std::map<const char*, mtc::zval>>& ix ) -> mtc::api<IContentsIndex>
 {
   auto  pstore = storage::posixFS::CreateSink( storage::posixFS::StoragePolicies::Open(
     GetTmpPath() + "k2" ) );
@@ -44,12 +22,12 @@ auto  CreateDynamicIndex( const mtc::zmap& ix ) -> mtc::api<IContentsIndex>
     .Create();
 
   for ( auto& next: ix )
-    pindex->SetEntity( next.first.to_charstr(), KeyValues( *next.second.get_zmap() ).ptr() );
+    pindex->SetEntity( next.first, GetView( next.second ) );
 
   return pindex;
 }
 
-auto  CreateStaticIndex( const mtc::zmap& ix ) -> mtc::api<IContentsIndex>
+auto  CreateStaticIndex( const std::map<const char*, std::map<const char*, mtc::zval>>& ix ) -> mtc::api<IContentsIndex>
 {
   auto  serial = CreateDynamicIndex( ix )->Commit();
 
@@ -76,29 +54,29 @@ TestItEasy::RegisterFunc  index_layers( []()
         SECTION( "begin initialized, it lists objects" )
         {
           REQUIRE_NOTHROW( flakes.addContents( CreateStaticIndex( {
-            { "i1", mtc::zmap{
-              { "aaa", "aaa" },
-              { "bbb", "bbb" },
-              { "ccc", "ccc" } } },
-            { "i2", mtc::zmap{
+            { "i1", {
+              { "aaa", 1167 },
+              { "bbb", 4314 },
+              { "ccc", 9671 } } },
+            { "i2", {
               { "bbb", "bbb" },
               { "ccc", "ccc" },
               { "ddd", "ddd" } } },
-            { "i3", mtc::zmap{
-              { "ccc", "ccc" },
-              { "ddd", "ddd" },
-              { "eee", "eee" } } },
+            { "i3", {
+              { "ccc", 167.11 },
+              { "ddd", 94.58 },
+              { "eee", 691lu } } },
           } ) ) );
           REQUIRE_NOTHROW( flakes.addContents( CreateStaticIndex( {
-            { "i4", mtc::zmap{
+            { "i4", {
               { "ddd", "ddd" },
               { "eee", "eee" },
               { "fff", "fff" } } },
-            { "i5", mtc::zmap{
+            { "i5", {
               { "eee", "eee" },
               { "fff", "fff" },
               { "ggg", "ggg" } } },
-            { "i6", mtc::zmap{
+            { "i6", {
               { "fff", "fff" },
               { "ggg", "ggg" },
               { "hhh", "hhh" } } },

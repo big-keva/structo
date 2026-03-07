@@ -70,11 +70,6 @@ TestItEasy::RegisterFunc  test_processor( []()
           "Строка внутри вложенного тега" } } } },
       "Третья строка." } );
 
-    SECTION( "it works only with utf16 texts" )
-    {
-      REQUIRE_EXCEPTION( txProc.WordBreak( txBody, DeliriX::Text{ "some string" } ),
-        std::invalid_argument );
-    }
     SECTION( "utf-16 text may be tokenized" )
     {
       REQUIRE_NOTHROW( txProc.WordBreak( txBody, ucText ) );

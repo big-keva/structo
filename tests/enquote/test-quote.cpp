@@ -127,8 +127,8 @@ TestItEasy::RegisterFunc  test_quote( []()
       {
         auto  membuf = mtc::Arena();
         auto  quotes = queries::MakeAbstract( membuf, {
-          queries::MakeEntrySet( membuf, { { 0, 1 }, { 1, 2 } } ),
-          queries::MakeEntrySet( membuf, { { 2, 13 }, { 3, 14 } } ) } );
+          queries::MakeEntrySet( membuf, { { 1, 0 }, { 2, 1 } } ),
+          queries::MakeEntrySet( membuf, { { 13, 2 }, { 14, 3 } } ) } );
 
         quoted = Quoter( quotes );
 
@@ -168,8 +168,8 @@ TestItEasy::RegisterFunc  test_quote( []()
       SECTION( "with quotation data, it selects fragments" )
       {
         auto  quotes = queries::MakeAbstract( membuf, {
-          queries::MakeEntrySet( membuf, { { 0, 1 }, { 1, 2 } } ),
-          queries::MakeEntrySet( membuf, { { 2, 12 }, { 3, 13 } } ) } );
+          queries::MakeEntrySet( membuf, { { 1, 0 }, { 2, 1 } } ),
+          queries::MakeEntrySet( membuf, { { 12, 2 }, { 13, 3 } } ) } );
 
         quoted = Quoter( quotes );
 
@@ -201,7 +201,7 @@ TestItEasy::RegisterFunc  test_quote( []()
         SECTION( "long events are quoted partially")
         {
           quotes = queries::MakeAbstract( membuf, {
-            queries::MakeEntrySet( membuf, { { 0, 30 }, { 1, 41 } } ) } );
+            queries::MakeEntrySet( membuf, { { 30, 0 }, { 41, 1 } } ) } );
 
           quoted = Quoter( quotes );
 
@@ -215,8 +215,8 @@ TestItEasy::RegisterFunc  test_quote( []()
         SECTION( "multiple events in one block are supported" )
         {
           quotes = queries::MakeAbstract( membuf, {
-            queries::MakeEntrySet( membuf, { { 0, 33 } } ),
-            queries::MakeEntrySet( membuf, { { 1, 39 } } ) } );
+            queries::MakeEntrySet( membuf, { { 33, 0 } } ),
+            queries::MakeEntrySet( membuf, { { 39, 1 } } ) } );
 
           quoted = Quoter( quotes );
 

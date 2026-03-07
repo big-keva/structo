@@ -111,7 +111,7 @@ TestItEasy::RegisterFunc  test_fields_manager( []()
             { "indents", mtc::zmap{
                 { "medium", mtc::zmap() } } } } } ), std::invalid_argument );
 
-          SECTION( "'indents':'lower' and 'upper may contain only 'min' and 'max'" )
+          SECTION( "'indents':'lower' and 'upper' may contain only 'min' and 'max'" )
           {
             REQUIRE_EXCEPTION( fm = LoadFields( mtc::array_zmap{
             { { "name", "body" },
@@ -152,7 +152,7 @@ TestItEasy::RegisterFunc  test_fields_manager( []()
                 { "options", "my-code: true" } } } ), std::invalid_argument );
             REQUIRE_NOTHROW( fm = LoadFields( mtc::array_zmap{
               { { "name", "body" },
-                { "options", "word-break: true; contents: text" } } } ) );
+                { "options", "word-break: true; index: true; quote: true" } } } ) );
           }
           SECTION( "'options' affect flags" )
           {

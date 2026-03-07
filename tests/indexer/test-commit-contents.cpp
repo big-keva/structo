@@ -87,7 +87,7 @@ public:
     {  return ix == 3 ? &entity : nullptr;  }
   bool  DelEntity( EntityId )
     {  throw std::logic_error( "invalid call" );  }
-  auto  SetEntity( EntityId, mtc::api<const IContents>, const std::string_view&, const std::string_view& ) -> mtc::api<const IEntity> override
+  auto  SetEntity( EntityId, const mtc::span<const EntryView>&, const std::string_view&, const std::string_view& ) -> mtc::api<const IEntity> override
     {  throw std::logic_error( "invalid call" );  }
   auto  SetExtras( EntityId, const std::string_view& ) -> mtc::api<const IEntity> override
     {  throw std::logic_error( "invalid call" );  }

@@ -29,7 +29,6 @@ TestItEasy::RegisterFunc  test_contents_processor( []()
     proc.WordBreak( text );
     proc.SetMarkup( body, text );
     proc.Lemmatize( body );
-  auto  contents = mtc::api<IContents>();
 
   TEST_CASE( "context/contents" )
   {
@@ -37,70 +36,83 @@ TestItEasy::RegisterFunc  test_contents_processor( []()
     {
       SECTION( "* as 'mini'" )
       {
-        FieldManager  fieldMan;
+        auto  fieldMan = FieldManager();
+        auto  contents = Contents();
 
-        if ( REQUIRE_NOTHROW( contents = GetMiniContents( body.GetLemmas(), body.GetMarkup(), fieldMan ) ) )
-          if ( REQUIRE( contents != nullptr ) )
+        if ( REQUIRE_NOTHROW( contents = MiniContents( body ) ) )
+          if ( REQUIRE( contents.get().empty() == false ) )
           {
-            REQUIRE_NOTHROW( contents->List( [&]( const std::string_view&, const std::string_view& value, unsigned bkType )
-              {
-                REQUIRE( bkType == 0 );
-                REQUIRE( value.size() == 0 );
-              } ) );
+            for ( auto& next: contents.get() )
+            {
+              if ( REQUIRE( (next.bid == 0 || next.bid == 99) ) )
+                REQUIRE( (next.bid == 0) == (next.val.size() == 0) );
+            }
           }
       }
       SECTION( "* as 'BM25'" )
       {
-        FieldManager  fieldMan;
+        auto  fieldMan = FieldManager();
+        auto  contents = Contents();
 
-        if ( REQUIRE_NOTHROW( contents = GetBM25Contents( body.GetLemmas(), body.GetMarkup(), fieldMan ) ) )
-          if ( REQUIRE( contents != nullptr ) )
+        if ( REQUIRE_NOTHROW( contents = BM25Contents( body ) ) )
+          if ( REQUIRE( contents.get().empty() == false ) )
           {
-            REQUIRE_NOTHROW( contents->List( [&]( const std::string_view& key, const std::string_view& value, unsigned bkType )
-              {
-                if ( REQUIRE( bkType == 10 ) && REQUIRE( value.size() != 0 ) )
+            for ( auto& next: contents.get() )
+            {
+              if ( REQUIRE( (next.bid == 10 || next.bid == 99) ) )
+                if ( REQUIRE( next.val.size() != 0 ) )
                 {
-                  auto  curkey = Key( key.data(), key.size() );
+                  auto  curkey = Key( next.key );
                   int   ncount;
 
-                  ::FetchFrom( value.data(), ncount );
+                  ::FetchFrom( next.val.data(), ncount );
 
-                  if ( curkey == StrKey( "фонарь" ) ) REQUIRE( ncount == 2 );
-                    else  REQUIRE( ncount == 1 );
+                  if ( curkey == StrKey( "фонарь" ) )
+                  {
+                    REQUIRE( ncount == 2 );
+                  }
+                    else
+                  if ( curkey.size() == 3 && memcmp( curkey.data(), "dsr", 3 ) == 0 )
+                  {
+                    REQUIRE( ncount == 15 );
+                  }
+                    else
+                  REQUIRE( ncount == 1 );
                 }
-              } ) );
+            }
           }
       }
       SECTION( "* as 'Rich'" )
       {
-        FieldManager  fieldMan;
+        auto  fieldMan = FieldManager();
+        auto  contents = Contents();
 
         if ( REQUIRE_NOTHROW( contents = GetRichContents( body.GetLemmas(), body.GetMarkup(), fieldMan ) ) )
-          if ( REQUIRE( contents != nullptr ) )
+          if ( REQUIRE( contents.get().empty() == false ) )
           {
-            REQUIRE_NOTHROW( contents->List( [&]( const std::string_view& key, const std::string_view& value, unsigned bkType )
+            for ( auto& next: contents.get() )
+            {
+              if ( next.bid == 99 )
+                continue;
+
+              if ( next.bid == 20 && REQUIRE( next.val.size() != 0 ) )
               {
-                if ( bkType == 99 )
-                  return;
+                int   getpos;
+                auto  source = ::FetchFrom( next.val.data(), getpos );
 
-                if ( REQUIRE( bkType == 20 ) && REQUIRE( value.size() != 0 ) )
+                if ( Key( next.key ) == StrKey( "радугу" ) )
                 {
-                  int   getpos;
-                  auto  source = ::FetchFrom( value.data(), getpos );
-
-                  if ( Key( key.data(), key.size() ) == StrKey( "радугу" ) )
-                  {
-                    REQUIRE( getpos == 2 );
-                  }
-                    else
-                  if ( Key( key.data(), key.size() ) == StrKey( "фонарь" ) )
-                  {
-                    REQUIRE( getpos == 11 );
-                      ::FetchFrom( source, getpos );
-                    REQUIRE( getpos == 2 );
-                  }
+                  REQUIRE( getpos == 2 );
                 }
-              } ) );
+                  else
+                if ( Key( next.key ) == StrKey( "фонарь" ) )
+                {
+                  REQUIRE( getpos == 11 );
+                    ::FetchFrom( source, getpos );
+                  REQUIRE( getpos == 2 );
+                }
+              }
+            }
           }
       }
     }

@@ -2,34 +2,12 @@
 # include "../../storage/posix-fs.hpp"
 # include "../../src/indexer/dynamic-entities.hpp"
 # include "../toolbox/tmppath.h"
+# include "test-contents-helpers.hpp"
 # include <mtc/test-it-easy.hpp>
 # include <mtc/zmap.h>
 
 using namespace structo;
 using namespace structo::indexer;
-
-class KeyValues: public IContents, protected mtc::zmap
-{
-  implement_lifetime_stub
-
-public:
-  KeyValues( const mtc::zmap& keyval ):
-    zmap( keyval )  {}
-
-  auto  ptr() const -> const IContents*
-    {  return this;  }
-
-  void  Enum( IContentsIndex::IIndexAPI* to ) const override
-    {
-      for ( auto keyvalue: *this )
-      {
-        auto  val = keyvalue.second.to_string();
-
-        to->Insert( { (const char*)keyvalue.first.data(), keyvalue.first.size() },
-          { val.data(), val.size() }, unsigned(-1) );
-      }
-    }
-};
 
 TestItEasy::RegisterFunc  dynamic_contents( []()
   {
@@ -44,18 +22,18 @@ TestItEasy::RegisterFunc  dynamic_contents( []()
 
         SECTION( "entities may be inserted to the contents index" )
         {
-          contents->SetEntity( "aaa", KeyValues( {
+          contents->SetEntity( "aaa", GetView( {
             { "k1", 1161 },
             { "k2", 1262 },
-            { "k3", 1263 } } ).ptr() );
-          contents->SetEntity( "bbb", KeyValues( {
+            { "k3", 1263 } } ) );
+          contents->SetEntity( "bbb", GetView( {
             { "k2", 1262 },
             { "k3", 1263 },
-            { "k4", 1264 } } ).ptr() );
-          contents->SetEntity( "ccc", KeyValues( {
+            { "k4", 1264 } } ) );
+          contents->SetEntity( "ccc", GetView( {
             { "k3", 1263 },
             { "k4", 1264 },
-            { "k5", 1265 } } ).ptr() );
+            { "k5", 1265 } } ) );
           contents->DelEntity( "bbb" );
         }
         SECTION( "entities may be get by id" )
@@ -155,7 +133,7 @@ TestItEasy::RegisterFunc  dynamic_contents( []()
         {
           SECTION( "extras may be attached do entity on SetEntity()" )
           {
-            if ( REQUIRE_NOTHROW( contents->SetEntity( "attached", nullptr, { "aaa", 3 } ) ) )
+            if ( REQUIRE_NOTHROW( contents->SetEntity( "attached", {}, { "aaa", 3 } ) ) )
             {
               if ( REQUIRE_NOTHROW( entity = contents->GetEntity( "attached" ) ) && REQUIRE( entity != nullptr ) )
               {
@@ -201,12 +179,12 @@ TestItEasy::RegisterFunc  dynamic_contents( []()
 
         SECTION( "insertion of more entities than the limit causes count_overflow" )
         {
-          REQUIRE_NOTHROW( contents->SetEntity( "aaa", KeyValues( {
-            { "aaa", 1161 } } ).ptr() ) );
-          REQUIRE_NOTHROW( contents->SetEntity( "bbb", KeyValues( {
-            { "bbb", 1161 } } ).ptr() ) );
-          REQUIRE_EXCEPTION( contents->SetEntity( "ccc", KeyValues( {
-            { "ccc", 1161 } } ).ptr() ), index_overflow );
+          REQUIRE_NOTHROW( contents->SetEntity( "aaa", GetView( {
+            { "aaa", 1161 } } ) ) );
+          REQUIRE_NOTHROW( contents->SetEntity( "bbb", GetView( {
+            { "bbb", 1161 } } ) ) );
+          REQUIRE_EXCEPTION( contents->SetEntity( "ccc", GetView( {
+            { "ccc", 1161 } } ) ), index_overflow );
         }
       }
       SECTION( "dynamic::contents index may be created with size count limitation" )
@@ -219,10 +197,10 @@ TestItEasy::RegisterFunc  dynamic_contents( []()
 
         SECTION( "insertion of more entities than the limit causes count_overflow" )
         {
-          REQUIRE_NOTHROW( contents->SetEntity( "aaa", KeyValues( {
-            { "aaa", 1161 } } ).ptr() ) );
-          REQUIRE_EXCEPTION( contents->SetEntity( "bbb", KeyValues( {
-            { "bbb", 1161 } } ).ptr() ), index_overflow );
+          REQUIRE_NOTHROW( contents->SetEntity( "aaa", GetView( {
+            { "aaa", 1161 } } ) ) );
+          REQUIRE_EXCEPTION( contents->SetEntity( "bbb", GetView( {
+            { "bbb", 1161 } } ) ), index_overflow );
         }
       }
       SECTION( "created with storage sink, it saves index as static" )
@@ -235,9 +213,9 @@ TestItEasy::RegisterFunc  dynamic_contents( []()
           .Set( sink )
           .Create() );
 
-        REQUIRE_NOTHROW( contents->SetEntity( "aaa", KeyValues( { { "aaa", 1161 } } ).ptr() ) );
-        REQUIRE_NOTHROW( contents->SetEntity( "bbb", KeyValues( { { "bbb", 1162 } } ).ptr() ) );
-        REQUIRE_NOTHROW( contents->SetEntity( "ccc", KeyValues( { { "ccc", 1163 } } ).ptr() ) );
+        REQUIRE_NOTHROW( contents->SetEntity( "aaa", GetView( { { "aaa", 1161 } } ) ) );
+        REQUIRE_NOTHROW( contents->SetEntity( "bbb", GetView( { { "bbb", 1162 } } ) ) );
+        REQUIRE_NOTHROW( contents->SetEntity( "ccc", GetView( { { "ccc", 1163 } } ) ) );
 
         if ( REQUIRE_NOTHROW( well = contents->Commit() ) && REQUIRE( well != nullptr ) )
           REQUIRE_NOTHROW( well->Remove() );

@@ -10,16 +10,17 @@
 using namespace structo;
 using namespace structo::indexer;
 
-class Contents: public IContents, protected std::vector<std::pair<std::string, std::string>>
+class Contents:
+  public std::vector<EntryView>,
+  public std::map<std::string, std::string>
 {
-  implement_lifetime_stub
-
-  friend Contents CreateContents();
-
-  void  Enum( IContentsIndex::IIndexAPI* index ) const override
+public:
+  void  insert( std::string&& k, std::string&& v )
   {
-    for ( auto& next: *this )
-      index->Insert( next.first, next.second, 1 );
+    auto  ins = std::map<std::string, std::string>::insert( { std::move( k ), std::move( v ) } );
+
+    if ( ins.second )
+      emplace_back( ins.first->first, ins.first->second, 0U );
   }
 };
 
@@ -31,7 +32,7 @@ auto  CreateContents() -> Contents
   auto  nStep = size_t(1 + rand() * 2. / RAND_MAX);
 
   for ( size_t i = 0; i < nKeys; i += nStep )
-    out.emplace_back( mtc::strprintf( "key%u", i ), mtc::strprintf( "val%u", i ) );
+    out.insert( mtc::strprintf( "key%u", i ), mtc::strprintf( "val%u", i ) );
 
   return out;
 }
@@ -44,8 +45,7 @@ TestItEasy::RegisterFunc  stream_indexing( []()
     {
       auto  storage = storage::posixFS::Open( storage::posixFS::StoragePolicies::Open(
         GetTmpPath() + "k2" ) );
-      auto  layered = layered::Index()
-        .Set( storage )
+      auto  layered = layered::Index( storage )
         .Set( dynamic::Settings()
           .SetMaxEntities( 4096 )
           .SetMaxAllocate( 256 * 1024 * 1024 ) )
@@ -63,9 +63,8 @@ TestItEasy::RegisterFunc  stream_indexing( []()
 
             for ( auto entId = base * 1000; entId < (base + 1) * 1000; ++entId )
             {
-              auto  contents = CreateContents();
-
-              layered->SetEntity( std::string_view( mtc::strprintf( "ent%u", entId ) ), &contents );
+              layered->SetEntity( std::string_view( mtc::strprintf( "ent%u", entId ) ),
+                CreateContents() );
             }
           }, i ) );
         for ( auto& th: threads )

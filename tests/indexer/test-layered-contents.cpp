@@ -7,29 +7,6 @@
 using namespace structo;
 using namespace structo::indexer;
 
-class KeyValues: public IContents, protected mtc::zmap
-{
-  implement_lifetime_stub
-
-public:
-  KeyValues( const mtc::zmap& keyval ):
-    zmap( keyval )  {}
-
-  auto  ptr() const -> const IContents*
-  {  return this;  }
-
-  void  Enum( IContentsIndex::IIndexAPI* to ) const override
-  {
-    for ( auto keyvalue: *this )
-    {
-      auto  val = keyvalue.second.to_string();
-
-      to->Insert( { (const char*)keyvalue.first.data(), keyvalue.first.size() },
-        { val.data(), val.size() }, unsigned(-1) );
-    }
-  }
-};
-
 # define NOT_IMPLEMENTED  {  throw std::runtime_error( "not implemented @" __FILE__ ":" LINE_STRING );  }
 
 class MockDynamic final: public IContentsIndex
@@ -65,7 +42,7 @@ public:
     {  return new MockEntity( mtc::strprintf( "%u", ix ), ix );  }
   bool  DelEntity( EntityId ) override
     {  return false;  }
-  auto  SetEntity( EntityId id, mtc::api<const IContents>, const std::string_view&, const std::string_view& ) -> mtc::api<const IEntity> override
+  auto  SetEntity( EntityId id, const mtc::span<const EntryView>&, const std::string_view&, const std::string_view& ) -> mtc::api<const IEntity> override
     {  return new MockEntity( std::string( id ), 1 );  }
   auto  SetExtras( EntityId id, const std::string_view& ) -> mtc::api<const IEntity> override
     {  return new MockEntity( std::string( id ), 1 );  }
