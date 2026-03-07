@@ -19,7 +19,11 @@ namespace structo
 
     EntryView() = default;
     EntryView( const EntryView& ) = default;
-    EntryView( const std::string_view& k, const std::string_view& v = {}, unsigned b = 0 ):
+    EntryView( const std::string_view& k ):
+      key( k )  {}
+    EntryView( const std::string_view& k, const std::string_view& v ):
+      key( k ), val( v ), bid( 0 )  {}
+    EntryView( const std::string_view& k, const std::string_view& v, unsigned b ):
       key( k ), val( v ), bid( b )  {}
   };
 /*
