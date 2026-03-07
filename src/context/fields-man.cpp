@@ -282,6 +282,7 @@ namespace context {
           opts.options = (opts.options & ~FieldOptions::ofDisableQuote)
             | FieldOptions::ofEnforceQuote;
         }
+          else
         throw std::invalid_argument( mtc::strprintf( "invalid field 'index' option '%s'", valstr.c_str() ) );
       }
         else
