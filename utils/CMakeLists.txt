@@ -1,13 +1,18 @@
-add_executable(DX-merge
+link_libraries(
+	structo
+	DeliriX
+	moonycode
+	mtc
+	z)
+
+add_executable(sx-merge
 	merge-indices.cpp)
 
-add_executable(DX-check
+add_executable(sx-check
 	index-check.cpp)
 
-target_link_libraries(DX-merge
-	structo
-	mtc)
+add_executable(sx-stats
+	index-stats.cpp)
 
-target_link_libraries(DX-check
-	structo
-	mtc)
+add_executable(sx-query
+	index-query.cpp)
