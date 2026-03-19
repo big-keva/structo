@@ -15,7 +15,7 @@ int   PrintEntities( mtc::api<structo::IContentsIndex> index )
   {
     auto  docid = std::string( doc->GetId() );
     auto  extra = doc->GetExtra();
-    auto  pkpos = doc->GetBundlePos();
+    auto  ppack = doc->GetBundle();
     auto  exstr = std::string();
     auto  pkstr = std::string();
 
@@ -24,10 +24,10 @@ int   PrintEntities( mtc::api<structo::IContentsIndex> index )
       exstr = mtc::strprintf( ",\n"
         "    \"extra\": \"%u bytes\"", extra->GetLen() );
     }
-    if ( pkpos != -1 )
+    if ( ppack != nullptr )
     {
       pkstr = mtc::strprintf( ",\n"
-        "    \"image\": %lu", pkpos );
+        "    \"image\": %lu", ppack->GetLen() );
     }
     fprintf( stdout, "%s"
       "  {\n"
