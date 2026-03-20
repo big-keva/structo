@@ -1,9 +1,7 @@
 link_libraries(
 	structo
 	DeliriX
-	moonycode
-	mtc
-	z)
+	${MoonyCode_LIB} mtc z)
 
 add_executable(sx-merge
 	merge-indices.cpp)

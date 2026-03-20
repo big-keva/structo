@@ -1,6 +1,6 @@
 set(COMMON_SRC toolbox/tmppath.cpp toolbox/dirtool.cpp test-main.cpp)
 
-link_libraries(structo DeliriX mtc moonycode)
+link_libraries(structo DeliriX ${MoonyCode_LIB} mtc)
 
 if(FALSE)
 	add_executable(test-structo-enquote
