@@ -1,7 +1,4 @@
 # include "../../indexer/static-contents.hpp"
-
-#include <context/x-contents.hpp>
-
 # include "override-entities.hpp"
 # include "static-entities.hpp"
 # include "dynamic-bitmap.hpp"
@@ -77,10 +74,20 @@ namespace static_ {
 
   class ContentsIndex::EntitiesBase: public IEntities
   {
+    struct DocDowel
+    {
+      uint32_t  lastId;
+      uint64_t  offset;
+    };
+    struct DocIndex final: std::vector<DocDowel>, Iface
+    {
+      implement_lifetime_control
+    };
+
   public:
     EntitiesBase( const mtc::api<const mtc::IByteBuffer>&, uint32_t, uint32_t, const ContentsIndex* );
 
-  public:     // overridables
+  // overridables
     auto  Size() const -> uint32_t override {  return ncount;  }
     auto  Type() const -> uint32_t override {  return bkType;  }
 
@@ -89,11 +96,13 @@ namespace static_ {
     const uint32_t                    ncount;
     mtc::api<const ContentsIndex>     parent;
     mtc::api<const mtc::IByteBuffer>  iblock;
+    const char* const                 origin;
+    const char*                       finish;
     const char*                       ptrtop;
-    const char*                       ptrend;
-    uint32_t                          jumpId = uint32_t(-1);
-    const char*                       jumpPt = 0;
     Reference                         curref = { 0, { nullptr, 0 } };
+    mtc::api<DocIndex>                pindex;
+    DocIndex::const_iterator          dowBeg = {};
+    DocIndex::const_iterator          dowEnd = {};
 
   };
 
@@ -318,9 +327,41 @@ namespace static_ {
       ncount( cnt ),
       parent( own ),
       iblock( src ),
-      ptrtop( src->GetPtr() ),
-      ptrend( ptrtop + src->GetLen() )
+      origin( src->GetPtr() ),
+      finish( origin + src->GetLen() ),
+      ptrtop( origin )
   {
+    if ( origin + 3 > finish )
+      throw std::logic_error( "invalid block format @" __FILE__ LINE_STRING );
+
+    unsigned  idxlen =
+      (unsigned(uint8_t(finish[-3])) << 0x10) |
+      (unsigned(uint8_t(finish[-2])) << 0x08) |
+      (unsigned(uint8_t(finish[-1])) << 0x00);
+
+    if ( idxlen != 0 )
+    {
+      auto  src = finish - idxlen - 3;
+      auto  end = finish - 3;
+      auto  old = DocDowel{ 0, 0 };
+
+      if ( origin + idxlen + 3 > finish )
+        throw std::logic_error( "invalid block format @" __FILE__ LINE_STRING );
+
+      for ( pindex = new DocIndex(); src < end; )
+      {
+        uint32_t  addDoc;
+        uint64_t  addPos;
+
+        src = ::FetchFrom( ::FetchFrom( src, addDoc ), addPos );
+          old.lastId += addDoc;
+          old.offset += addPos;
+        pindex->emplace_back( old );
+      }
+      dowBeg = pindex->cbegin();
+      dowEnd = pindex->cend();
+    }
+    finish -= (idxlen + 3);
   }
 
   // ContentsIndex::EntitiesLite implementation
@@ -330,7 +371,7 @@ namespace static_ {
     if ( curref.uEntity >= (tofind = std::max( tofind, 1U )) )
       return curref;
 
-    for ( tofind = std::max( tofind, 1U ); ptrtop < ptrend; )
+    for ( tofind = std::max( tofind, 1U ); ptrtop < finish; )
     {
       unsigned  udelta;
 
@@ -347,40 +388,31 @@ namespace static_ {
 
   auto  ContentsIndex::EntitiesRich::Find( uint32_t tofind ) -> Reference
   {
-    unsigned  udelta;
-    unsigned  ublock;
-
     if ( curref.uEntity >= (tofind = std::max( tofind, 1U )) )
       return curref;
 
-    while ( ptrtop < ptrend )
+  // check in th edocuments index
+    for ( ; dowBeg != dowEnd && dowBeg->lastId < tofind; ++dowBeg )
     {
-      if ( tofind > jumpId )
-      {
-        curref.uEntity = jumpId;  ptrtop = jumpPt;
-          jumpId = (uint32_t)-1;
-      }
+      curref.uEntity = dowBeg->lastId;
+        ptrtop = origin + dowBeg->offset;
+    }
+
+  // lookup in block
+    while ( ptrtop < finish )
+    {
+      unsigned  udelta;
+      unsigned  ublock;
 
       if ( (ptrtop = ::FetchFrom( ::FetchFrom( ptrtop, udelta ), ublock )) == nullptr )
         return curref = { (uint32_t)-1, { nullptr, 0 } };
 
-      if ( ublock != 0 )
+      if ( (curref.uEntity += udelta + 1) >= tofind && !parent->shadowed.Get( curref.uEntity ) )
       {
-        if ( (curref.uEntity += udelta + 1) >= tofind && !parent->shadowed.Get( curref.uEntity ) )
-        {
-          curref.details = { ptrtop, ublock };
-          return ptrtop += ublock, curref;
-        }
-        ptrtop += ublock;
+        curref.details = { ptrtop, ublock };
+        return ptrtop += ublock, curref;
       }
-        else
-      {
-        if ( (ptrtop = ::FetchFrom( ::FetchFrom( ptrtop, udelta ), ublock )) == nullptr )
-          return curref = { (uint32_t)-1, { nullptr, 0 } };
-
-        jumpId = curref.uEntity + udelta + 1;
-        jumpPt = ptrtop + ublock;
-      }
+      ptrtop += ublock;
     }
     return curref = { (uint32_t)-1, { nullptr, 0 } };
   }

@@ -391,8 +391,10 @@ namespace dynamic {
   // store all the index chains saving offset, count and length to the tree
     for ( auto next = radixTree.begin(), stop = radixTree.end(); next != stop && chain != nullptr; ++next )
     {
-      auto  lastId = uint32_t(0);
-      auto  length = uint32_t(0);
+      auto    lastId = uint32_t(0);
+      auto    length = uint32_t(0);
+      char    docbuf[0x20];
+      size_t  doclen;
 
       next->value.blockOffset = offset;
 
@@ -404,11 +406,10 @@ namespace dynamic {
         for ( auto p = next->value.blocksChain->pfirst.load(); p != nullptr; p = p->p_next.load() )
           if ( p->entity != uint32_t(-1) )
           {
-            auto  diffId = p->entity - lastId - 1;
-
-            length += uint32_t(::GetBufLen( diffId ));
-              chain = ::Serialize( chain, diffId );
-            lastId = p->entity;
+            doclen = ::Serialize( docbuf, p->entity - lastId - 1 ) - docbuf;
+              length += doclen;
+            chain = ::Serialize( chain, docbuf, doclen );
+              lastId = p->entity;
           }
       }
         else
@@ -416,18 +417,19 @@ namespace dynamic {
         for ( auto p = next->value.blocksChain->pfirst.load(); p != nullptr; p = p->p_next.load() )
           if ( p->entity != uint32_t(-1) )
           {
-            auto  diffId = p->entity - lastId - 1;
-            auto  blkLen = p->lblock;
-
-            length += uint32_t(::GetBufLen( diffId ) + p->lblock + ::GetBufLen( blkLen ));
-              chain = ::Serialize( ::Serialize( ::Serialize( chain,
-                diffId ),
-                blkLen ), p->data(), blkLen );
+            doclen = ::Serialize( ::Serialize( docbuf, p->entity - lastId - 1 ), p->lblock ) - docbuf;
+              length += doclen + p->lblock;
+            chain = ::Serialize( ::Serialize( chain,
+              docbuf, doclen ), p->data(), p->lblock );
             lastId = p->entity;
           }
       }
+      chain = ::Serialize( ::Serialize( ::Serialize( chain,
+        uint8_t(0) ),
+        uint8_t(0) ),
+        uint8_t(0) );
 
-      offset += (next->value.blockLength = length);
+      offset += (next->value.blockLength = length + 3);
     }
 
   // store radix tree

@@ -12,9 +12,8 @@ namespace fusion {
   using IRecordIterator = IContentsIndex::IContentsList;
   using EntityReference = IContentsIndex::IEntities::Reference;
 
-  constexpr size_t  sector_len = 1 * 0x400 * 0x400;   // 1M
-  constexpr size_t  safety_gap = 1 * 0x400 * 0x400;   // 1M
-  constexpr size_t  max_docids = 0x200;
+  constexpr size_t    max_docids = 0x200;
+  constexpr uint32_t  max_length = 1 * 0x400 * 0x400;
 
   class EntityIterator
   {
@@ -84,6 +83,16 @@ namespace fusion {
 
   };
 
+ /*
+  * DocAnchor отправляет в точку, где надо вычитывать приращение документа с индексом
+  * больше указанного, на нужное смещение.
+  */
+  struct DocAnchor
+  {
+    unsigned  lastId;
+    uint64_t  offset;
+  };
+
   auto  MergeSimple(
     mtc::api<mtc::IByteStream>      output,
     std::vector<EntityReference>&   buffer,
@@ -129,44 +138,16 @@ namespace fusion {
   auto  MergeChains(
     mtc::api<mtc::IByteStream>      output,
     std::vector<EntityReference>&   buffer,
-    const std::vector<MapEntities>& blocks,
-    std::vector<char>&              sector ) -> std::pair<uint32_t, uint64_t>
+    const std::vector<MapEntities>& blocks ) -> std::pair<uint32_t, uint64_t>
   {
+    auto      points = std::vector<DocAnchor>();
     uint64_t  length = 0;
     uint32_t  uOldId = 0;
-    auto      secptr = sector.data();
-    auto      gapptr = sector.data() + sector.size() - safety_gap;
-    auto      uOrgId = uint32_t(0);
-    auto      nitems = size_t(0);
-    auto      fFlush = [&]( bool withJump )
-      {
-        if ( withJump )
-        {
-          auto  dif_id = uOldId - uOrgId - 1;
-          auto  dif_cb = secptr - sector.data();
-
-          if ( ::Serialize(
-               ::Serialize(
-               ::Serialize(
-               ::Serialize( output.ptr(), 0 ), 0 ), dif_id ), dif_cb ) == nullptr )
-          {
-            throw std::runtime_error( "Failed to serialize entities" );
-          }
-
-          length += ::GetBufLen( 0 ) + ::GetBufLen( 0 )
-            + ::GetBufLen( dif_id ) + ::GetBufLen( dif_cb );
-        }
-
-        if ( ::Serialize( output.ptr(), sector.data(), secptr - sector.data() ) == nullptr )
-        {
-          throw std::runtime_error( "Failed to serialize entities" );
-        }
-
-        length += secptr - sector.data();
-          secptr = sector.data();
-        uOrgId = uOldId;
-          nitems = 0;
-      };
+    DocAnchor daPrev = { 0, 0 };
+    auto      nitems = size_t(0);     // objects in section
+    auto      cbPart = uint32_t(0);   // current sec length
+    char      docbuf[0x40];
+    size_t    doclen;
 
     for ( auto& block: blocks )
     {
@@ -190,28 +171,52 @@ namespace fusion {
 
     for ( auto& reference: buffer )
     {
-      auto  diffId = reference.uEntity - uOldId - 1;
-      auto  nbytes = reference.details.size();
+      auto    nbytes = reference.details.size();
 
-      if ( secptr + nbytes > gapptr || nitems++ > max_docids )
-        fFlush( true );
+    // serialize next difference
+      doclen = ::Serialize( ::Serialize( docbuf,
+        reference.uEntity - uOldId - 1 ), nbytes ) - docbuf;
 
-      secptr = ::Serialize( ::Serialize( ::Serialize( secptr,
-        diffId ),
-        nbytes ),
-        reference.details.data(), nbytes );
+      ::Serialize( ::Serialize( output.ptr(), docbuf, doclen ),
+          reference.details.data(), nbytes );
 
-      if ( secptr == nullptr )
-      {
-        throw std::runtime_error( "Failed to serialize entities" );
-      }
+      length += nbytes + doclen;
+      cbPart += nbytes + doclen;
 
       uOldId = reference.uEntity;
+
+      // check for navigation point needed:
+      // * too many documents
+      // * too long block
+      if ( (++nitems % max_docids) == 0 || cbPart >= max_length )
+      {
+        points.push_back( { uOldId, length } );
+        nitems = 1;
+        cbPart = 0;
+      }
     }
 
-    fFlush( false );
+  // write navigation block
+    cbPart = 0;
 
-    return { uint32_t(buffer.size()), length };
+    for ( auto& next: points )
+    {
+      doclen = ::Serialize( ::Serialize( docbuf, next.lastId - daPrev.lastId ),
+        next.offset - daPrev.offset ) - docbuf;
+
+      ::Serialize( output.ptr(), docbuf, doclen );
+        cbPart += doclen;
+        length += doclen;
+      daPrev = next;
+    }
+
+  // write navigation length at end
+    ::Serialize( ::Serialize( ::Serialize( output.ptr(),
+      uint8_t(cbPart >> 0x10) ),
+      uint8_t(cbPart >> 0x08) ),
+      uint8_t(cbPart >> 0x00) );
+
+    return { uint32_t(buffer.size()), length + 3 };
   }
 
   void  ContentsMerger::MergeEntities()
@@ -298,7 +303,6 @@ namespace fusion {
     auto  iterators = std::vector<LexemeIterator>();
     auto  selectSet = std::vector<size_t>( indices.size() );
     auto  refVector = std::vector<EntityReference>( 0x100000 );
-    auto  docSector = std::vector<char>( sector_len + safety_gap );
     auto  radixTree = mtc::radix::tree<RadixLink>();
     auto  keyRecord = RadixLink{ 0, 0, 0, 0 };
 
@@ -339,7 +343,7 @@ namespace fusion {
 
         mergeStat = blockList.front().entityBlock->Type() == 0 ?
           MergeSimple( chains, refVector, blockList ) :
-          MergeChains( chains, refVector, blockList, docSector );
+          MergeChains( chains, refVector, blockList );
 
         if ( mergeStat.second != 0 )
         {
