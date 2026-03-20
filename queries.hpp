@@ -101,8 +101,9 @@ namespace queries {
   */
   struct IQuery: mtc::Iface
   {
-    virtual uint32_t        SearchDoc( uint32_t ) = 0;
-    virtual const Abstract& GetTuples( uint32_t ) = 0;
+    virtual uint32_t          SearchDoc( uint32_t ) = 0;
+    virtual const Abstract&   GetTuples( uint32_t ) = 0;
+    virtual mtc::api<IQuery>  Duplicate(          ) = 0;
   };
 
   auto  GetQuotation( const Abstract& ) -> Abstract::Entries;

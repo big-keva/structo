@@ -1,6 +1,8 @@
 # if !defined( __structo_src_queries_field_set_hpp__ )
 # define __structo_src_queries_field_set_hpp__
 # include "../../fields.hpp"
+# include <mtc/zmap.h>
+# include <vector>
 
 namespace structo {
 namespace queries {

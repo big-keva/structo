@@ -48,21 +48,22 @@ namespace queries {
   * MiniQueryTerm - самый простой термин с одним координатным блоком, реализующий
   * поиск и ранжирование слова с одной лексемой
   */
-  struct MiniQueryTerm final: MiniQueryBase
+  class MiniQueryTerm final: public MiniQueryBase
   {
-    implement_lifetime_control
-
+  public:
   // construction
     MiniQueryTerm( mtc::api<IEntities> dsr, mtc::api<IEntities> blk, double idf ): MiniQueryBase( dsr ),
       entBlock( blk ),
       datatype( blk->Type() ),
       bm25Term{ 0, idf, 0, 1 } {}
+    MiniQueryTerm( const MiniQueryTerm& );
 
   // overridables
-    uint32_t  SearchDoc( uint32_t ) override;
+    auto  SearchDoc( uint32_t ) -> uint32_t         override;
+    auto  Duplicate(          ) -> mtc::api<IQuery> override;
+    auto  GetChunks( uint32_t ) -> Abstract&        override;
 
-  protected:
-    Abstract& GetChunks( uint32_t ) override;
+    implement_lifetime_control
 
   protected:
     mtc::api<IEntities> entBlock;
@@ -95,16 +96,17 @@ namespace queries {
         idfValue( idf ){}
     };
 
-    implement_lifetime_control
-
-  // construction
+  public: // construction
     MiniMultiTerm( mtc::api<IEntities>, std::vector<std::pair<mtc::api<IEntities>, double>>& );
+    MiniMultiTerm( const MiniMultiTerm& );
 
-  protected:
-    Abstract&   GetChunks( uint32_t ) override;
+    // IQuery overridables
 
-  public:   // IQuery overridables
-    uint32_t    SearchDoc( uint32_t ) override;
+    auto  SearchDoc( uint32_t ) -> uint32_t         override;
+    auto  Duplicate(          ) -> mtc::api<IQuery> override;
+    auto  GetChunks( uint32_t ) -> Abstract&        override;
+
+    implement_lifetime_control
 
   protected:
     std::vector<KeyBlock>           blockSet;
@@ -153,11 +155,15 @@ namespace queries {
   {
     using MiniQueryArgs::MiniQueryArgs;
 
-    implement_lifetime_control
+  public:
+    MiniQueryAll( const MiniQueryAll& );
 
     // overridables
-    uint32_t  SearchDoc( uint32_t id ) override  {  return StrictSearch( id );  }
-    auto      GetChunks( uint32_t id ) -> Abstract& override;
+    auto  SearchDoc( uint32_t id ) -> uint32_t         override;
+    auto  Duplicate(             ) -> mtc::api<IQuery> override;
+    auto  GetChunks( uint32_t id ) -> Abstract&        override;
+
+    implement_lifetime_control
 
   };
 
@@ -165,15 +171,17 @@ namespace queries {
   {
     using MiniQueryArgs::MiniQueryArgs;
 
-    implement_lifetime_control
-
+  public:
     // construction
-    MiniQueryFuzzy( mtc::api<IEntities> dsr, double quo ): MiniQueryArgs( dsr ),
-      quorum( quo ) {}
+    MiniQueryFuzzy( mtc::api<IEntities> dsr, double quo );
+    MiniQueryFuzzy( const MiniQueryFuzzy& );
 
     // overridables
-    uint32_t  SearchDoc( uint32_t ) override;
-    auto      GetChunks( uint32_t ) -> Abstract& override;
+    auto  SearchDoc( uint32_t ) -> uint32_t         override;
+    auto  Duplicate(          ) -> mtc::api<IQuery> override;
+    auto  GetChunks( uint32_t ) -> Abstract&        override;
+
+    implement_lifetime_control
 
   protected:
     double  quorum;
@@ -184,11 +192,15 @@ namespace queries {
   {
     using MiniQueryArgs::MiniQueryArgs;
 
-    implement_lifetime_control
+  public:
+    MiniQueryAny( const MiniQueryAny& );
 
     // overridables
-    uint32_t  SearchDoc( uint32_t ) override;
-    auto      GetChunks( uint32_t ) -> Abstract& override;
+    auto  SearchDoc( uint32_t ) -> uint32_t         override;
+    auto  Duplicate(          ) -> mtc::api<IQuery> override;
+    auto  GetChunks( uint32_t ) -> Abstract&        override;
+
+    implement_lifetime_control
 
   protected:
     std::vector<Abstract*>  selected;
@@ -310,7 +322,17 @@ namespace queries {
 
   // MiniQueryAll implementation
 
- /*
+  auto  MiniQueryAll::SearchDoc( uint32_t id ) -> uint32_t
+  {
+    return StrictSearch( id );
+  }
+
+  auto  MiniQueryAll::Duplicate() -> mtc::api<IQuery>
+  {
+    return new MiniQueryAll( *this );
+  }
+
+  /*
   * MiniQueryAll::GetChunks( ... )
   *
   * Fill abstract with term idf's for all the terms meet in subqueries
@@ -336,6 +358,11 @@ namespace queries {
   }
 
   // MiniQueryFuzzy implementation
+
+  MiniQueryFuzzy::MiniQueryFuzzy( mtc::api<IEntities> docStats, double flQuorum ):
+    MiniQueryArgs( docStats ), quorum( flQuorum )
+  {
+  }
 
   uint32_t  MiniQueryFuzzy::SearchDoc( uint32_t tofind )
   {
@@ -372,6 +399,11 @@ namespace queries {
         return entityId = ufound;
       tofind = ufound + 1;
     }
+  }
+
+  auto  MiniQueryFuzzy::Duplicate() -> mtc::api<IQuery>
+  {
+    return new MiniQueryFuzzy( *this );
   }
 
   auto  MiniQueryFuzzy::GetChunks( uint32_t udocid ) -> Abstract&
@@ -411,6 +443,11 @@ namespace queries {
       uFound = std::min( uFound, next.SearchDoc( tofind ) );
 
     return entityId = uFound;
+  }
+
+  auto  MiniQueryAny::Duplicate() -> mtc::api<IQuery>
+  {
+    return new MiniQueryAny( *this );
   }
 
   auto  MiniQueryAny::GetChunks( uint32_t udocid ) -> Abstract&

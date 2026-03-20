@@ -1,6 +1,7 @@
 # if !defined( __structo_src_queries_rich_rankers_hpp__ )
 # define __structo_src_queries_rich_rankers_hpp__
 # include "field-set.hpp"
+# include "context/text-image.hpp"
 # include <vector>
 
 namespace structo {
@@ -8,60 +9,51 @@ namespace queries {
 
   class TermRanker
   {
-    std::vector<unsigned>   tagOffset;
-    std::vector<double>     fidWeight;
+    struct RankerData
+    {
+      int                     refsCount = 0;
+      std::vector<unsigned>   tagOffset;
+      std::vector<double>     fidWeight;
+    };
 
-    TermRanker( const TermRanker& ) = delete;
-    TermRanker& operator=( const TermRanker& ) = delete;
   public:
     TermRanker() = default;
-    TermRanker( TermRanker&& tr ):
-      tagOffset( std::move( tr.tagOffset ) ),
-      fidWeight( std::move( tr.fidWeight ) )  {}
+    TermRanker( const TermRanker& );
+    TermRanker& operator=( const TermRanker& );
     TermRanker( const FieldSet&, const context::Lexeme&, double, bool strict );
 
   // rank
     double  operator()( unsigned tag, uint8_t fid ) const;
+
+  protected:
+    RankerData* ranker = nullptr;
+
   };
 
   // TermRanker inline implementation
 
-  TermRanker::TermRanker( const FieldSet& fds, const context::Lexeme& lex, double flo, bool fmatch )
+  inline  TermRanker::TermRanker( const TermRanker& src )
   {
-    for ( auto tag: fds )
+    if ( (ranker = src.ranker) != nullptr )
+      ++ranker->refsCount;
+  }
+
+  inline  TermRanker& TermRanker::operator=( const TermRanker& src )
+  {
+    if ( this != &src )
     {
-    // get tag relocation
-      if ( tagOffset.size() <= tag )
-        tagOffset.insert( tagOffset.end(), tag - tagOffset.size() + 1, uint32_t(-1) );
-      if ( tagOffset[tag] == uint32_t(-1) )
-        tagOffset[tag] = unsigned(fidWeight.size());
-
-    // insert forms mapping
-      if ( fidWeight.size() <= tagOffset[tag] + 256 )
-        fidWeight.insert( fidWeight.end(), tagOffset[tag] + 256 - fidWeight.size(), -1.0 );
-
-    // fill default value
-      if ( fmatch )
-        std::fill( fidWeight.begin() + tagOffset[tag], fidWeight.begin() + tagOffset[tag] + 256, -1 );
-      else
-        std::fill( fidWeight.begin() + tagOffset[tag], fidWeight.begin() + tagOffset[tag] + 256, 0.5 * flo );
-
-      if ( lex.GetForms().empty() )
-      {
-        fidWeight[255 + tagOffset[tag]] = flo;
-      }
-        else
-      {
-        for ( auto fid: lex.GetForms() )
-          fidWeight[fid + tagOffset[tag]] = flo;
-      }
+      if ( ranker != nullptr && --ranker->refsCount == 0 )
+        delete ranker;
+      if ( (ranker = src.ranker) != nullptr )
+        ++ranker->refsCount;
     }
+    return *this;
   }
 
   inline  auto  TermRanker::operator()( unsigned tag, uint8_t fid ) const -> double
   {
-    if ( tag < tagOffset.size() && (tag = tagOffset[tag]) != unsigned(-1) )
-      return fidWeight[tag + fid];
+    if ( ranker != nullptr && tag < ranker->tagOffset.size() && (tag = ranker->tagOffset[tag]) != unsigned(-1) )
+      return ranker->fidWeight[tag + fid];
     return 0.2;
   }
 

@@ -67,6 +67,7 @@ add_library(structo
 	src/queries/query-terms.cpp
 	src/queries/query-tools.cpp
 	src/queries/base-queries.cpp
+	src/queries/rich-rankers.cpp
 	src/queries/rich-queries.cpp
 	src/queries/mini-queries.cpp
 

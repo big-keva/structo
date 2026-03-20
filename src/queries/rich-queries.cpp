@@ -23,10 +23,15 @@ namespace queries {
   */
   struct RichQueryBase: IQuery
   {
-    RichQueryBase( mtc::api<IEntities> fmt ):
-      fmtBlock( fmt ) {}
+    RichQueryBase( mtc::api<IEntities> );
+    RichQueryBase( const RichQueryBase& );
 
+    // IQuery  overridables
     virtual auto  GetTuples( uint32_t ) -> const Abstract&;
+    virtual auto  Duplicate(          ) -> mtc::api<IQuery>;
+
+    // local overridables
+    virtual auto  BuildCopy() -> mtc::api<RichQueryBase> = 0;
     virtual auto  GetChunks( uint32_t, mtc::span<const char>, const Limits& = {} ) -> Abstract& = 0;
 
   protected:
@@ -42,25 +47,25 @@ namespace queries {
   * RichQueryTerm - самый простой термин с одним координатным блоком, реализующий
   * поиск и ранжирование слова с одной лексемой
   */
-  struct RichQueryTerm final: RichQueryBase
+  class RichQueryTerm final: public RichQueryBase
   {
-    implement_lifetime_control
+    RichQueryTerm( const RichQueryTerm& );
 
-  // construction
-    RichQueryTerm( mtc::api<IEntities> ft, const mtc::api<IEntities>& bk, TermRanker&& tr ): RichQueryBase( ft ),
-      entBlock( bk ),
-      datatype( bk->Type() ),
-      tmRanker( std::move( tr ) ) {}
+  public:   // construction
+    RichQueryTerm( mtc::api<IEntities>, mtc::api<IEntities>, const TermRanker& );
 
   // overridables
-    uint32_t  SearchDoc( uint32_t ) override;
-    Abstract& GetChunks( uint32_t, mtc::span<const char>, const Limits& ) override;
+    auto  BuildCopy() -> mtc::api<RichQueryBase> override;
+    auto  SearchDoc( uint32_t ) -> uint32_t         override;
+    auto  GetChunks( uint32_t, mtc::span<const char>, const Limits& ) -> Abstract& override;
+
+    implement_lifetime_control
 
   protected:
     mtc::api<IEntities> entBlock;
     const unsigned      datatype;
     TermRanker          tmRanker;
-    Reference           docRefer;
+    Reference           docRefer = { 0, {} };
     EntrySet            entryBuf[0x10000];
 
   };
@@ -81,10 +86,14 @@ namespace queries {
       PosFid              entryPos[0x10000];
 
     // construction
-      KeyBlock( const mtc::api<IEntities>& bk, TermRanker&& tr ):
+      KeyBlock( const mtc::api<IEntities>& bk, const TermRanker& tr ):
         entBlock( bk ),
         datatype( bk->Type() ),
-        tmRanker( std::move( tr ) )  {}
+        tmRanker( tr )  {}
+      KeyBlock( const KeyBlock& blk ):
+        entBlock( blk.entBlock->Copy() ),
+        datatype( blk.datatype ),
+        tmRanker( blk.tmRanker )  {}
 
     // methods
       auto  Unpack( const Limits& limits ) -> unsigned
@@ -96,14 +105,17 @@ namespace queries {
       }
     };
 
-    implement_lifetime_control
+    RichMultiTerm( const RichMultiTerm& );
 
-  // construction
+  public:   // construction
     RichMultiTerm( mtc::api<IEntities>, std::vector<std::pair<mtc::api<IEntities>, TermRanker>>& );
 
   // IQuery overridables
-    uint32_t  SearchDoc( uint32_t ) override;
-    Abstract& GetChunks( uint32_t, mtc::span<const char>, const Limits& ) override;
+    auto  BuildCopy() -> mtc::api<RichQueryBase> override;
+    auto  SearchDoc( uint32_t ) -> uint32_t override;
+    auto  GetChunks( uint32_t, mtc::span<const char>, const Limits& ) -> Abstract& override;
+
+    implement_lifetime_control
 
   protected:
     std::vector<KeyBlock>   blockSet;
@@ -161,11 +173,15 @@ namespace queries {
   {
     using RichQueryArgs::RichQueryArgs;
 
-    implement_lifetime_control
+    RichQueryAll( const RichQueryAll& all ):
+      RichQueryArgs( all ) {}
 
-    // overridables
-    uint32_t  SearchDoc( uint32_t id ) override  {  return StrictSearch( id );  }
-    Abstract& GetChunks( uint32_t id, mtc::span<const char>, const Limits& ) override;
+  public:   // overridables
+    auto  BuildCopy() -> mtc::api<RichQueryBase> override;
+    auto  SearchDoc( uint32_t ) -> uint32_t override;
+    auto  GetChunks( uint32_t, mtc::span<const char>, const Limits& ) -> Abstract& override;
+
+    implement_lifetime_control
 
   };
 
@@ -173,11 +189,15 @@ namespace queries {
   {
     using RichQueryArgs::RichQueryArgs;
 
-    implement_lifetime_control
+    RichQueryOrder( const RichQueryOrder& order ):
+      RichQueryArgs( order ) {}
 
-    // overridables
-    uint32_t  SearchDoc( uint32_t id ) override {  return StrictSearch( id );  }
-    Abstract& GetChunks( uint32_t id, mtc::span<const char>, const Limits& ) override;
+  public:   // overridables
+    auto  BuildCopy() -> mtc::api<RichQueryBase> override;
+    auto  SearchDoc( uint32_t ) -> uint32_t override;
+    auto  GetChunks( uint32_t, mtc::span<const char>, const Limits& ) -> Abstract& override;
+
+    implement_lifetime_control
 
   };
 
@@ -185,22 +205,28 @@ namespace queries {
   {
     using RichQueryArgs::RichQueryArgs;
 
-    implement_lifetime_control
+    RichQueryFuzzy( const RichQueryFuzzy& fuzzy ): RichQueryArgs( fuzzy ),
+      quorum( fuzzy.quorum )  {}
 
-    // construction
+  public:   // construction
     RichQueryFuzzy( mtc::api<IEntities> fmt, double quo ): RichQueryArgs( fmt ),
       quorum( quo ) {}
 
     // overridables
-    uint32_t  SearchDoc( uint32_t id ) override;
-    Abstract& GetChunks( uint32_t id, mtc::span<const char>, const Limits& ) override;
+    auto  BuildCopy() -> mtc::api<RichQueryBase> override;
+    auto  SearchDoc( uint32_t ) -> uint32_t override;
+    auto  GetChunks( uint32_t, mtc::span<const char>, const Limits& ) -> Abstract& override;
 
+  protected:
     double    DistRange( double distance ) const
     {
       return distance >= 0 ?
         0.01 + 0.99 * cos(atan(fabs(distance / 5.0))) :
         0.01 + 0.95 * cos(atan(fabs(distance / 5.0)));
     }
+
+    implement_lifetime_control
+
   protected:
     double  quorum;
 
@@ -210,11 +236,15 @@ namespace queries {
   {
     using RichQueryArgs::RichQueryArgs;
 
-    implement_lifetime_control
+    RichQueryAny( const RichQueryAny& any ):
+      RichQueryArgs( any )  {}
 
-    // overridables
-    uint32_t  SearchDoc( uint32_t ) override;
-    Abstract& GetChunks( uint32_t, mtc::span<const char>, const Limits& ) override;
+  public:   // IQuery overridables
+    auto  BuildCopy() -> mtc::api<RichQueryBase> override;
+    auto  SearchDoc( uint32_t ) -> uint32_t         override;
+    auto  GetChunks( uint32_t, mtc::span<const char>, const Limits& ) -> Abstract& override;
+
+    implement_lifetime_control
 
   protected:
     std::vector<Abstract*>  selected;
@@ -225,6 +255,7 @@ namespace queries {
   public:
   // construction
     RichQueryField( mtc::api<IEntities>, const std::vector<unsigned>&, mtc::api<RichQueryBase> );
+    RichQueryField( const RichQueryField& );
 
     // overridables
     uint32_t  SearchDoc( uint32_t id ) override;
@@ -240,23 +271,41 @@ namespace queries {
   {
     using RichQueryField::RichQueryField;
 
-    implement_lifetime_control
+    RichQueryCover( const RichQueryCover& cover ):
+      RichQueryField( cover ) {}
 
-  // overridables
-    Abstract& GetChunks( uint32_t id, mtc::span<const char>, const Limits& ) override;
+  public:   // overridables
+    auto  BuildCopy() -> mtc::api<RichQueryBase> override;
+    auto  GetChunks( uint32_t, mtc::span<const char>, const Limits& ) -> Abstract& override;
+
+    implement_lifetime_control
   };
 
   class RichQueryMatch final: public RichQueryField
   {
     using RichQueryField::RichQueryField;
 
-    implement_lifetime_control
+    RichQueryMatch( const RichQueryMatch& match ):
+      RichQueryField( match ) {}
 
-  // overridables
-    Abstract& GetChunks( uint32_t id, mtc::span<const char>, const Limits& ) override;
+  public:   // overridables
+    auto  BuildCopy() -> mtc::api<RichQueryBase> override;
+    auto  GetChunks( uint32_t, mtc::span<const char>, const Limits& ) -> Abstract& override;
+
+    implement_lifetime_control
   };
 
   // RichQueryBase implementation
+
+  RichQueryBase::RichQueryBase( mtc::api<IEntities> fmt ): fmtBlock( fmt )
+  {
+  }
+
+  RichQueryBase::RichQueryBase( const RichQueryBase& src )
+  {
+    if ( src.fmtBlock != nullptr )
+      fmtBlock = src.fmtBlock->Copy();
+  }
 
   auto  RichQueryBase::GetTuples( uint32_t tofind ) -> const Abstract&
   {
@@ -273,6 +322,11 @@ namespace queries {
     return abstract = {};
   }
 
+  auto  RichQueryBase::Duplicate() -> mtc::api<IQuery>
+  {
+    return BuildCopy().ptr();
+  }
+
   inline
   auto  RichQueryBase::SetPoints( EntryPos* out, const EntryPos* lim, const EntrySet& ent ) const -> EntryPos*
   {
@@ -282,6 +336,25 @@ namespace queries {
   }
 
   // RichQueryTerm implementation
+
+  RichQueryTerm::RichQueryTerm( const RichQueryTerm& rt ): RichQueryBase( rt ),
+    entBlock( rt.entBlock->Copy() ),
+    datatype( rt.datatype ),
+    tmRanker( rt.tmRanker )
+  {
+  }
+
+  RichQueryTerm::RichQueryTerm( mtc::api<IEntities> ft, mtc::api<IEntities> bk, const TermRanker& tr ): RichQueryBase( ft ),
+    entBlock( bk ),
+    datatype( bk->Type() ),
+    tmRanker( tr )
+  {
+  }
+
+  auto  RichQueryTerm::BuildCopy() -> mtc::api<RichQueryBase>
+  {
+    return new RichQueryTerm( *this );
+  }
 
  /*
   * Search next document in the list of entities
@@ -320,6 +393,11 @@ namespace queries {
 
   // RichMultiTerm implementation
 
+  RichMultiTerm::RichMultiTerm( const RichMultiTerm& multi ): RichQueryBase( multi ),
+    blockSet( multi.blockSet ), entryBuf( 0x10000 )
+  {
+  }
+
   RichMultiTerm::RichMultiTerm( mtc::api<IEntities> fmt, std::vector<std::pair<mtc::api<IEntities>, TermRanker>>& terms ):
     RichQueryBase( fmt ),
     entryBuf( 0x10000 )
@@ -346,6 +424,11 @@ namespace queries {
     }
 
     return abstract = {}, entityId = uFound;
+  }
+
+  auto  RichMultiTerm::BuildCopy() -> mtc::api<RichQueryBase>
+  {
+    return new RichMultiTerm( *this );
   }
 
   Abstract& RichMultiTerm::GetChunks( uint32_t getdoc, mtc::span<const char> ftbuff, const Limits& limits )
@@ -471,6 +554,16 @@ namespace queries {
 
   // RichQueryAll implementation
 
+  uint32_t  RichQueryAll::SearchDoc( uint32_t id )
+  {
+    return StrictSearch( id );
+  }
+
+  auto  RichQueryAll::BuildCopy() -> mtc::api<RichQueryBase>
+  {
+    return new RichQueryAll( *this );
+  }
+
  /*
   * RichQueryAll::GetChunks( ... )
   *
@@ -534,6 +627,16 @@ namespace queries {
   }
 
   // RichQueryOrder implementation
+
+  auto  RichQueryOrder::SearchDoc( uint32_t udocid ) -> uint32_t
+  {
+    return StrictSearch( udocid );
+  }
+
+  auto  RichQueryOrder::BuildCopy() -> mtc::api<RichQueryBase>
+  {
+    return new RichQueryOrder( *this );
+  }
 
   Abstract& RichQueryOrder::GetChunks( uint32_t udocid, mtc::span<const char> format, const Limits& limits )
   {
@@ -678,6 +781,11 @@ namespace queries {
       next.SearchDoc( ufound );
 
     return entityId = ufound;
+  }
+
+  auto  RichQueryFuzzy::BuildCopy() -> mtc::api<RichQueryBase>
+  {
+    return new RichQueryFuzzy( *this );
   }
 
   Abstract& RichQueryFuzzy::GetChunks( uint32_t  udocid, mtc::span<const char> format, const Limits& limits )
@@ -835,6 +943,11 @@ namespace queries {
     return entityId = uFound;
   }
 
+  auto  RichQueryAny::BuildCopy() -> mtc::api<RichQueryBase>
+  {
+    return new RichQueryAny( *this );
+  }
+
   Abstract& RichQueryAny::GetChunks( uint32_t udocid, mtc::span<const char> format, const Limits& limits )
   {
     if ( abstract.dwMode != abstract.Rich )
@@ -904,6 +1017,13 @@ namespace queries {
       mtc::bitset_set( matchSet, id );
   }
 
+  RichQueryField::RichQueryField( const RichQueryField& src ): RichQueryBase( src ),
+    matchSet( src.matchSet )
+  {
+    if ( src.subQuery != nullptr )
+      subQuery = src.subQuery->BuildCopy();
+  }
+
   auto  RichQueryField::SearchDoc( uint32_t id ) -> uint32_t
   {
     return entityId < id ? abstract = {},
@@ -911,6 +1031,11 @@ namespace queries {
   }
 
   // RichQueryCover implementation
+
+  auto  RichQueryCover::BuildCopy() -> mtc::api<RichQueryBase>
+  {
+    return new RichQueryCover( *this );
+  }
 
   Abstract& RichQueryCover::GetChunks( uint32_t id, mtc::span<const char> ft, const Limits& limits )
   {
@@ -960,6 +1085,11 @@ namespace queries {
   }
 
   // RichQueryMatch implementation
+
+  auto  RichQueryMatch::BuildCopy() -> mtc::api<RichQueryBase>
+  {
+    return new RichQueryMatch( *this );
+  }
 
   Abstract& RichQueryMatch::GetChunks( uint32_t id, mtc::span<const char> ft, const Limits& limits )
   {
