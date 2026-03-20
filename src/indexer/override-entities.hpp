@@ -26,19 +26,21 @@ namespace indexer {
 
   class Override::Entities final: public IContentsIndex::IEntities
   {
-    mtc::api<IContentsIndex::IEntities> entities;
-    const Bitmap<std::allocator<char>>& suppress;
-    mtc::api<const mtc::Iface>          lifetime;
-
-    implement_lifetime_control
+    mtc::api<IEntities>   entities;
+    const Bitmap<>&       suppress;
+    mtc::api<const Iface> lifetime;
 
   public:
-    Entities( mtc::api<IContentsIndex::IEntities>, const Bitmap<std::allocator<char>>&, const mtc::Iface* );
+    Entities( mtc::api<IEntities>, const Bitmap<>&, const Iface* );
+    Entities( const Entities& );
 
-  public:
+  // overridables
     auto  Find( uint32_t ) -> Reference override;
     auto  Size() const -> uint32_t override;
     auto  Type() const -> uint32_t override;
+    auto  Copy() const -> mtc::api<IEntities> override;
+
+    implement_lifetime_control
 
   };
 

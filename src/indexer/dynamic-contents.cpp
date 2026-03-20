@@ -96,11 +96,16 @@ namespace dynamic {
       pwhere( chain ),
       pchain( mtc::ptr::clean( chain->pfirst.load() ) ),
       parent( owner ) {}
+    Entities( const Entities& ents ):
+      pwhere( ents.pwhere ),
+      pchain( ents.pchain ),
+      parent( ents.parent ) {}
 
   public:     // IEntities overridables
     auto  Find( uint32_t ) -> Reference override;
     auto  Type() const -> uint32_t override {  return pwhere->bkType;  }
     auto  Size() const -> uint32_t override {  return pwhere->ncount.load();  }
+    auto  Copy() const -> mtc::api<IEntities> override;
 
   protected:
     ChainHook*                    pwhere;
@@ -303,6 +308,11 @@ namespace dynamic {
       return { pchain->entity, { pchain->data(), pchain->lblock } };
     else
       return { uint32_t(-1), { nullptr, 0 } };
+  }
+
+  auto  ContentsIndex::Entities::Copy() const -> mtc::api<IEntities>
+  {
+    return new Entities( *this );
   }
 
   // contents implementation

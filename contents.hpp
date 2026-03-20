@@ -234,6 +234,7 @@ namespace structo
     virtual auto  Find( uint32_t ) -> Reference = 0;
     virtual auto  Size() const -> uint32_t = 0;
     virtual auto  Type() const -> uint32_t = 0;
+    virtual auto  Copy() const -> mtc::api<IEntities> = 0;
   };
 
   struct IContentsIndex::IEntitiesList: Iface

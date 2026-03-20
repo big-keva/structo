@@ -18,7 +18,7 @@ namespace indexer {
 
     using BlockSet = std::vector<BlockEntry>;
 
-    mtc::api<const mtc::Iface>        holder;
+    mtc::api<const Iface>             holder;
     BlockSet                          blocks;
     mutable BlockSet::const_iterator  pblock;
     uint32_t                          ncount = 0;
@@ -27,14 +27,16 @@ namespace indexer {
     implement_lifetime_control
 
   public:
-    Entities( const mtc::Iface* parent = nullptr );
+    Entities( const Iface* parent = nullptr );
+    Entities( const Entities& );
 
     void  AddBlock( const BlockEntry& );
 
-  public:
+    // overridables
     auto  Find( uint32_t ) -> Reference override;
     auto  Size() const -> uint32_t override {  return ncount;  }
     auto  Type() const -> uint32_t override {  return bktype;  }
+    auto  Copy() const -> mtc::api<IEntities> override;
 
   };
 
@@ -210,8 +212,17 @@ namespace indexer {
 
   // IndexLayers::Entities implementation
 
-  IndexLayers::Entities::Entities( const mtc::Iface* pix ):
+  IndexLayers::Entities::Entities( const Iface* pix ):
     holder( pix ), pblock( blocks.begin() )
+  {
+  }
+
+  IndexLayers::Entities::Entities( const Entities& ents ):
+    holder( ents.holder ),
+    blocks( ents.blocks ),
+    pblock( blocks.begin() + (ents.pblock - ents.blocks.begin()) ),
+    ncount( ents.ncount ),
+    bktype( ents.bktype )
   {
   }
 
@@ -242,6 +253,11 @@ namespace indexer {
         return getRef.uEntity += pblock->uLower - 1, getRef;
     }
     return { uint32_t(-1), {} };
+  }
+
+  auto  IndexLayers::Entities::Copy() const -> mtc::api<IEntities>
+  {
+    return new Entities( *this );
   }
 
   // IndexLayers::ContentsList implementation

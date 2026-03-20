@@ -96,13 +96,17 @@ namespace indexer {
 
   // Override::Entities implementation
 
-  Override::Entities::Entities(
-    mtc::api<IContentsIndex::IEntities> ients,
-    const Bitmap<std::allocator<char>>& stash,
-    const mtc::Iface*                   owner ):
-      entities( ients ),
-      suppress( stash ),
-      lifetime( owner )
+  Override::Entities::Entities( mtc::api<IEntities> ients, const Bitmap<>& stash, const Iface* owner ):
+    entities( ients ),
+    suppress( stash ),
+    lifetime( owner )
+  {
+  }
+
+  Override::Entities::Entities( const Entities& ents ):
+    entities( ents.entities ),
+    suppress( ents.suppress ),
+    lifetime( ents.lifetime )
   {
   }
 
@@ -124,6 +128,11 @@ namespace indexer {
   auto  Override::Entities::Type() const -> uint32_t
   {
     return entities->Type();
+  }
+
+  auto  Override::Entities::Copy() const -> mtc::api<IEntities>
+  {
+    return new Entities( *this );
   }
 
 }}

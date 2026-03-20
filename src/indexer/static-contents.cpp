@@ -86,6 +86,7 @@ namespace static_ {
 
   public:
     EntitiesBase( const mtc::api<const mtc::IByteBuffer>&, uint32_t, uint32_t, const ContentsIndex* );
+    EntitiesBase( const EntitiesBase& ) = default;
 
   // overridables
     auto  Size() const -> uint32_t override {  return ncount;  }
@@ -111,7 +112,10 @@ namespace static_ {
     using EntitiesBase::EntitiesBase;
 
   public:
+    EntitiesLite( const EntitiesLite& src ): EntitiesBase( src ) {}
+
     auto  Find( uint32_t ) -> Reference override;
+    auto  Copy() const -> mtc::api<IEntities> override;
 
     implement_lifetime_control
   };
@@ -121,7 +125,10 @@ namespace static_ {
     using EntitiesBase::EntitiesBase;
 
   public:
+    EntitiesRich( const EntitiesRich& src ): EntitiesBase( src ) {}
+
     auto  Find( uint32_t ) -> Reference override;
+    auto  Copy() const -> mtc::api<IEntities> override;
 
     implement_lifetime_control
   };
@@ -384,6 +391,11 @@ namespace static_ {
     return curref = { (uint32_t)-1, { nullptr, 0 } };
   }
 
+  auto  ContentsIndex::EntitiesLite::Copy() const -> mtc::api<IEntities>
+  {
+    return new EntitiesLite( *this );
+  }
+
   // ContentsIndex::EntitiesRich implementation
 
   auto  ContentsIndex::EntitiesRich::Find( uint32_t tofind ) -> Reference
@@ -415,6 +427,11 @@ namespace static_ {
       ptrtop += ublock;
     }
     return curref = { (uint32_t)-1, { nullptr, 0 } };
+  }
+
+  auto  ContentsIndex::EntitiesRich::Copy() const -> mtc::api<IEntities>
+  {
+    return new EntitiesRich( *this );
   }
 
   // ContentsIndex::EntityIterator implementation
