@@ -23,15 +23,24 @@ namespace queries {
   */
   struct RichQueryBase: IQuery
   {
+   /*
+    * This exception is thrown if a query copying results in uninitialized or empty query.
+    *
+    * Duplicate( bounds ) catches it and returns nullptr.
+    */
+    class uninitialized_exception: public std::runtime_error
+      {  using runtime_error::runtime_error;  };
+
     RichQueryBase( mtc::api<IEntities> );
-    RichQueryBase( const RichQueryBase& );
+    RichQueryBase( const RichQueryBase& ) = delete;
+    RichQueryBase( const RichQueryBase&, const Bounds& );
 
     // IQuery  overridables
+    virtual auto  Duplicate( const Bounds& ) -> mtc::api<IQuery>;
     virtual auto  GetTuples( uint32_t ) -> const Abstract&;
-    virtual auto  Duplicate(          ) -> mtc::api<IQuery>;
 
     // local overridables
-    virtual auto  BuildCopy() -> mtc::api<RichQueryBase> = 0;
+    virtual auto  BuildCopy( const Bounds& ) -> mtc::api<RichQueryBase> = 0;
     virtual auto  GetChunks( uint32_t, mtc::span<const char>, const Limits& = {} ) -> Abstract& = 0;
 
   protected:
@@ -49,14 +58,16 @@ namespace queries {
   */
   class RichQueryTerm final: public RichQueryBase
   {
-    RichQueryTerm( const RichQueryTerm& );
+    RichQueryTerm( const RichQueryTerm& ) = delete;
+    RichQueryTerm( const RichQueryTerm&, const Bounds& );
 
   public:   // construction
     RichQueryTerm( mtc::api<IEntities>, mtc::api<IEntities>, const TermRanker& );
 
   // overridables
-    auto  BuildCopy() -> mtc::api<RichQueryBase> override;
-    auto  SearchDoc( uint32_t ) -> uint32_t         override;
+    auto  LastIndex() -> uint32_t override;
+    auto  SearchDoc( uint32_t ) -> uint32_t override;
+    auto  BuildCopy( const Bounds& ) -> mtc::api<RichQueryBase> override;
     auto  GetChunks( uint32_t, mtc::span<const char>, const Limits& ) -> Abstract& override;
 
     implement_lifetime_control
@@ -90,10 +101,6 @@ namespace queries {
         entBlock( bk ),
         datatype( bk->Type() ),
         tmRanker( tr )  {}
-      KeyBlock( const KeyBlock& blk ):
-        entBlock( blk.entBlock->Copy() ),
-        datatype( blk.datatype ),
-        tmRanker( blk.tmRanker )  {}
 
     // methods
       auto  Unpack( const Limits& limits ) -> unsigned
@@ -105,14 +112,15 @@ namespace queries {
       }
     };
 
-    RichMultiTerm( const RichMultiTerm& );
+    RichMultiTerm( const RichMultiTerm&, const Bounds& );
 
   public:   // construction
     RichMultiTerm( mtc::api<IEntities>, std::vector<std::pair<mtc::api<IEntities>, TermRanker>>& );
 
-  // IQuery overridables
-    auto  BuildCopy() -> mtc::api<RichQueryBase> override;
+  // overridables
+    auto  LastIndex() -> uint32_t override;
     auto  SearchDoc( uint32_t ) -> uint32_t override;
+    auto  BuildCopy( const Bounds& ) -> mtc::api<RichQueryBase> override;
     auto  GetChunks( uint32_t, mtc::span<const char>, const Limits& ) -> Abstract& override;
 
     implement_lifetime_control
@@ -126,12 +134,8 @@ namespace queries {
   class RichQueryArgs: public RichQueryBase
   {
   public:
-    RichQueryArgs( mtc::api<IEntities> fmt ):
-      RichQueryBase( fmt ),
-      entryBuf( 0x10000 ),
-      pointBuf( 0x10000 ),
-      entryEnd( entryBuf.data() + entryBuf.size() ),
-      pointEnd( pointBuf.data() + pointBuf.size() ) {}
+    RichQueryArgs( mtc::api<IEntities> );
+    RichQueryArgs( const RichQueryArgs&, const Bounds&, bool exceptIfNULL );
 
     void   AddQueryNode( mtc::api<RichQueryBase>, double );
     auto   StrictSearch( uint32_t ) -> uint32_t;
@@ -169,32 +173,34 @@ namespace queries {
 
   };
 
-  class RichQueryAll final: public RichQueryArgs
+  class RichQueryForce: public RichQueryArgs
   {
     using RichQueryArgs::RichQueryArgs;
 
-    RichQueryAll( const RichQueryAll& all ):
-      RichQueryArgs( all ) {}
+  public:   // overridables
+    auto  LastIndex() -> uint32_t override;
+    auto  SearchDoc( uint32_t ) -> uint32_t override;
+
+  };
+
+  class RichQueryAll final: public RichQueryForce
+  {
+    using RichQueryForce::RichQueryForce;
 
   public:   // overridables
-    auto  BuildCopy() -> mtc::api<RichQueryBase> override;
-    auto  SearchDoc( uint32_t ) -> uint32_t override;
+    auto  BuildCopy( const Bounds& ) -> mtc::api<RichQueryBase> override;
     auto  GetChunks( uint32_t, mtc::span<const char>, const Limits& ) -> Abstract& override;
 
     implement_lifetime_control
 
   };
 
-  class RichQueryOrder final: public RichQueryArgs
+  class RichQueryOrder final: public RichQueryForce
   {
-    using RichQueryArgs::RichQueryArgs;
-
-    RichQueryOrder( const RichQueryOrder& order ):
-      RichQueryArgs( order ) {}
+    using RichQueryForce::RichQueryForce;
 
   public:   // overridables
-    auto  BuildCopy() -> mtc::api<RichQueryBase> override;
-    auto  SearchDoc( uint32_t ) -> uint32_t override;
+    auto  BuildCopy( const Bounds& ) -> mtc::api<RichQueryBase> override;
     auto  GetChunks( uint32_t, mtc::span<const char>, const Limits& ) -> Abstract& override;
 
     implement_lifetime_control
@@ -205,16 +211,17 @@ namespace queries {
   {
     using RichQueryArgs::RichQueryArgs;
 
-    RichQueryFuzzy( const RichQueryFuzzy& fuzzy ): RichQueryArgs( fuzzy ),
-      quorum( fuzzy.quorum )  {}
+    RichQueryFuzzy( const RichQueryFuzzy& source, const Bounds& bounds ):
+      RichQueryArgs( source, bounds, false ), quorum( source.quorum )  {}
 
   public:   // construction
     RichQueryFuzzy( mtc::api<IEntities> fmt, double quo ): RichQueryArgs( fmt ),
       quorum( quo ) {}
 
-    // overridables
-    auto  BuildCopy() -> mtc::api<RichQueryBase> override;
+  // overridables
+    auto  LastIndex() -> uint32_t override;
     auto  SearchDoc( uint32_t ) -> uint32_t override;
+    auto  BuildCopy( const Bounds& ) -> mtc::api<RichQueryBase> override;
     auto  GetChunks( uint32_t, mtc::span<const char>, const Limits& ) -> Abstract& override;
 
   protected:
@@ -236,12 +243,10 @@ namespace queries {
   {
     using RichQueryArgs::RichQueryArgs;
 
-    RichQueryAny( const RichQueryAny& any ):
-      RichQueryArgs( any )  {}
-
   public:   // IQuery overridables
-    auto  BuildCopy() -> mtc::api<RichQueryBase> override;
-    auto  SearchDoc( uint32_t ) -> uint32_t         override;
+    auto  LastIndex() -> uint32_t override;
+    auto  SearchDoc( uint32_t ) -> uint32_t override;
+    auto  BuildCopy( const Bounds& ) -> mtc::api<RichQueryBase> override;
     auto  GetChunks( uint32_t, mtc::span<const char>, const Limits& ) -> Abstract& override;
 
     implement_lifetime_control
@@ -250,15 +255,30 @@ namespace queries {
     std::vector<Abstract*>  selected;
   };
 
+  class RichQueryNot final: public RichQueryArgs
+  {
+    using RichQueryArgs::RichQueryArgs;
+
+  public:   // overridables
+    auto  LastIndex() -> uint32_t override;
+    auto  SearchDoc( uint32_t ) -> uint32_t override;
+    auto  BuildCopy( const Bounds& ) -> mtc::api<RichQueryBase> override;
+    auto  GetChunks( uint32_t, mtc::span<const char>, const Limits& ) -> Abstract& override;
+
+    implement_lifetime_control
+
+  };
+
   class RichQueryField: public RichQueryBase
   {
   public:
   // construction
     RichQueryField( mtc::api<IEntities>, const std::vector<unsigned>&, mtc::api<RichQueryBase> );
-    RichQueryField( const RichQueryField& );
+    RichQueryField( const RichQueryField&, const Bounds& );
 
-    // overridables
-    uint32_t  SearchDoc( uint32_t id ) override;
+  // overridables
+    auto  LastIndex() -> uint32_t override;
+    auto  SearchDoc( uint32_t ) -> uint32_t override;
 
   protected:
     mtc::api<RichQueryBase> subQuery;
@@ -271,11 +291,8 @@ namespace queries {
   {
     using RichQueryField::RichQueryField;
 
-    RichQueryCover( const RichQueryCover& cover ):
-      RichQueryField( cover ) {}
-
   public:   // overridables
-    auto  BuildCopy() -> mtc::api<RichQueryBase> override;
+    auto  BuildCopy( const Bounds& ) -> mtc::api<RichQueryBase> override;
     auto  GetChunks( uint32_t, mtc::span<const char>, const Limits& ) -> Abstract& override;
 
     implement_lifetime_control
@@ -285,11 +302,8 @@ namespace queries {
   {
     using RichQueryField::RichQueryField;
 
-    RichQueryMatch( const RichQueryMatch& match ):
-      RichQueryField( match ) {}
-
   public:   // overridables
-    auto  BuildCopy() -> mtc::api<RichQueryBase> override;
+    auto  BuildCopy( const Bounds& ) -> mtc::api<RichQueryBase> override;
     auto  GetChunks( uint32_t, mtc::span<const char>, const Limits& ) -> Abstract& override;
 
     implement_lifetime_control
@@ -301,10 +315,10 @@ namespace queries {
   {
   }
 
-  RichQueryBase::RichQueryBase( const RichQueryBase& src )
+  RichQueryBase::RichQueryBase( const RichQueryBase& src, const Bounds& bounds )
   {
-    if ( src.fmtBlock != nullptr )
-      fmtBlock = src.fmtBlock->Copy();
+    if ( src.fmtBlock != nullptr && (fmtBlock = src.fmtBlock->Copy( bounds )) == nullptr )
+      throw uninitialized_exception( "empty query element" );
   }
 
   auto  RichQueryBase::GetTuples( uint32_t tofind ) -> const Abstract&
@@ -322,9 +336,9 @@ namespace queries {
     return abstract = {};
   }
 
-  auto  RichQueryBase::Duplicate() -> mtc::api<IQuery>
+  auto  RichQueryBase::Duplicate( const Bounds& bounds ) -> mtc::api<IQuery>
   {
-    return BuildCopy().ptr();
+    return BuildCopy( bounds ).ptr();
   }
 
   inline
@@ -337,23 +351,33 @@ namespace queries {
 
   // RichQueryTerm implementation
 
-  RichQueryTerm::RichQueryTerm( const RichQueryTerm& rt ): RichQueryBase( rt ),
-    entBlock( rt.entBlock->Copy() ),
-    datatype( rt.datatype ),
-    tmRanker( rt.tmRanker )
+  RichQueryTerm::RichQueryTerm( const RichQueryTerm& rt, const Bounds& bounds ):
+    RichQueryBase( rt, bounds ),
+      entBlock( rt.entBlock->Copy( bounds ) ),
+      datatype( rt.datatype ),
+      tmRanker( rt.tmRanker )
   {
   }
 
-  RichQueryTerm::RichQueryTerm( mtc::api<IEntities> ft, mtc::api<IEntities> bk, const TermRanker& tr ): RichQueryBase( ft ),
-    entBlock( bk ),
-    datatype( bk->Type() ),
-    tmRanker( tr )
+  RichQueryTerm::RichQueryTerm( mtc::api<IEntities> ft, mtc::api<IEntities> bk, const TermRanker& tr ):
+    RichQueryBase( ft ),
+      entBlock( bk ),
+      datatype( bk->Type() ),
+      tmRanker( tr )
   {
   }
 
-  auto  RichQueryTerm::BuildCopy() -> mtc::api<RichQueryBase>
+  auto  RichQueryTerm::LastIndex() -> uint32_t
   {
-    return new RichQueryTerm( *this );
+    return entBlock->Last();
+  }
+
+  auto  RichQueryTerm::BuildCopy( const Bounds& bounds ) -> mtc::api<RichQueryBase>
+  {
+    try
+      {  return new RichQueryTerm( *this, bounds );  }
+    catch ( const uninitialized_exception& )
+      {  return nullptr;  }
   }
 
  /*
@@ -393,9 +417,18 @@ namespace queries {
 
   // RichMultiTerm implementation
 
-  RichMultiTerm::RichMultiTerm( const RichMultiTerm& multi ): RichQueryBase( multi ),
-    blockSet( multi.blockSet ), entryBuf( 0x10000 )
+  RichMultiTerm::RichMultiTerm( const RichMultiTerm& multi, const Bounds& bounds ):
+    RichQueryBase( multi, bounds ), entryBuf( 0x10000 )
   {
+    for ( auto& next: multi.blockSet )
+    {
+      auto  blcopy = next.entBlock->Copy( bounds );
+
+      if ( blcopy != nullptr )
+        blockSet.emplace_back( blcopy, next.tmRanker );
+    }
+    if ( blockSet.empty() )
+      throw uninitialized_exception( "RichMultiTerm::blockSet is empty @" __FILE__ LINE_STRING );
   }
 
   RichMultiTerm::RichMultiTerm( mtc::api<IEntities> fmt, std::vector<std::pair<mtc::api<IEntities>, TermRanker>>& terms ):
@@ -403,7 +436,17 @@ namespace queries {
     entryBuf( 0x10000 )
   {
     for ( auto& create: terms )
-      blockSet.emplace_back( create.first, std::move( create.second ) );
+      blockSet.emplace_back( create.first, create.second );
+  }
+
+  auto  RichMultiTerm::LastIndex() -> uint32_t
+  {
+    auto  lastId = uint32_t(0);
+
+    for ( auto block: blockSet )
+      lastId = std::max( lastId, block.entBlock->Last() );
+
+    return lastId;
   }
 
   uint32_t  RichMultiTerm::SearchDoc( uint32_t tofind )
@@ -426,9 +469,12 @@ namespace queries {
     return abstract = {}, entityId = uFound;
   }
 
-  auto  RichMultiTerm::BuildCopy() -> mtc::api<RichQueryBase>
+  auto  RichMultiTerm::BuildCopy( const Bounds& bounds ) -> mtc::api<RichQueryBase>
   {
-    return new RichMultiTerm( *this );
+    try
+      {  return new RichMultiTerm( *this, bounds );  }
+    catch ( const uninitialized_exception& )
+      {  return nullptr;  }
   }
 
   Abstract& RichMultiTerm::GetChunks( uint32_t getdoc, mtc::span<const char> ftbuff, const Limits& limits )
@@ -478,7 +524,7 @@ namespace queries {
       for ( lLimit = 0; entPtr != entEnd; )
       {
         auto      plower = decltype(pfound)( nullptr );
-        unsigned  ulower;
+        unsigned  ulower = unsigned(-1);
 
         for ( auto next = pfound; next != pfound + nfound; ++next )
         {
@@ -510,6 +556,38 @@ namespace queries {
   }
 
   // RichQueryArgs implementation
+
+  RichQueryArgs::RichQueryArgs( mtc::api<IEntities> fmt ):
+    RichQueryBase( fmt ),
+    entryBuf( 0x10000 ),
+    pointBuf( 0x10000 ),
+    entryEnd( entryBuf.data() + entryBuf.size() ),
+    pointEnd( pointBuf.data() + pointBuf.size() )
+  {
+  }
+
+  RichQueryArgs::RichQueryArgs( const RichQueryArgs& source, const Bounds& bounds, bool exceptIfNULL ):
+    RichQueryBase( source, bounds ),
+    entryBuf( 0x10000 ),
+    pointBuf( 0x10000 ),
+    entryEnd( entryBuf.data() + entryBuf.size() ),
+    pointEnd( pointBuf.data() + pointBuf.size() )
+  {
+    for ( auto& next: source.querySet )
+    {
+      auto  newOne = next;
+
+      if ( (newOne.subQuery = next.subQuery->BuildCopy( bounds )) == nullptr )
+      {
+        if ( exceptIfNULL )
+          throw uninitialized_exception( "empty query @" __FILE__ LINE_STRING );
+      }
+        else
+      querySet.emplace_back( newOne );
+    }
+    if ( querySet.empty() )
+      throw uninitialized_exception( "empty query @" __FILE__ LINE_STRING );
+  }
 
   void  RichQueryArgs::AddQueryNode( mtc::api<RichQueryBase> query, double range )
   {
@@ -552,16 +630,31 @@ namespace queries {
     }
   }
 
-  // RichQueryAll implementation
+  // RichQueryForce implementation
 
-  uint32_t  RichQueryAll::SearchDoc( uint32_t id )
+  auto  RichQueryForce::LastIndex() -> uint32_t
+  {
+    auto  uindex = uint32_t(-1);
+
+    for ( auto& next: querySet )
+      uindex = std::min( uindex, next.subQuery->LastIndex() );
+
+    return uindex;
+  }
+
+  uint32_t  RichQueryForce::SearchDoc( uint32_t id )
   {
     return StrictSearch( id );
   }
 
-  auto  RichQueryAll::BuildCopy() -> mtc::api<RichQueryBase>
+  // RichQueryAll implementation
+
+  auto  RichQueryAll::BuildCopy( const Bounds& bounds ) -> mtc::api<RichQueryBase>
   {
-    return new RichQueryAll( *this );
+    try
+      {  return new RichQueryAll( *this, bounds, true );  }
+    catch ( const uninitialized_exception& )
+      {  return nullptr;  }
   }
 
  /*
@@ -628,14 +721,12 @@ namespace queries {
 
   // RichQueryOrder implementation
 
-  auto  RichQueryOrder::SearchDoc( uint32_t udocid ) -> uint32_t
+  auto  RichQueryOrder::BuildCopy( const Bounds& bounds ) -> mtc::api<RichQueryBase>
   {
-    return StrictSearch( udocid );
-  }
-
-  auto  RichQueryOrder::BuildCopy() -> mtc::api<RichQueryBase>
-  {
-    return new RichQueryOrder( *this );
+    try
+      {  return new RichQueryOrder( *this, bounds, true );  }
+    catch ( const uninitialized_exception& )
+      {  return nullptr;  }
   }
 
   Abstract& RichQueryOrder::GetChunks( uint32_t udocid, mtc::span<const char> format, const Limits& limits )
@@ -716,6 +807,19 @@ namespace queries {
 
   // RichQueryFuzzy implementation
 
+ /*
+  * Но вообще-то последний надо вычислять как последний-из-тех-что-могут-дать-кворум
+  */
+  uint32_t  RichQueryFuzzy::LastIndex()
+  {
+    auto  lastId = uint32_t(0);
+
+    for ( auto& next: querySet )
+      lastId = std::max( lastId, next.subQuery->LastIndex() );
+
+    return lastId;
+  }
+
   uint32_t  RichQueryFuzzy::SearchDoc( uint32_t tofind )
   {
     double*   whlist = (double*)alloca( querySet.size() * sizeof(double) );
@@ -783,9 +887,12 @@ namespace queries {
     return entityId = ufound;
   }
 
-  auto  RichQueryFuzzy::BuildCopy() -> mtc::api<RichQueryBase>
+  auto  RichQueryFuzzy::BuildCopy( const Bounds& bounds ) -> mtc::api<RichQueryBase>
   {
-    return new RichQueryFuzzy( *this );
+    try
+      {  return new RichQueryFuzzy( *this, bounds );  }
+    catch ( const uninitialized_exception& )
+      {  return nullptr;  }
   }
 
   Abstract& RichQueryFuzzy::GetChunks( uint32_t  udocid, mtc::span<const char> format, const Limits& limits )
@@ -925,6 +1032,16 @@ namespace queries {
 
   // RichQueryAny implementation
 
+  auto  RichQueryAny::LastIndex() -> uint32_t
+  {
+    auto  uindex = uint32_t(0);
+
+    for ( auto& next: querySet )
+      uindex = std::max( uindex, next.subQuery->LastIndex() );
+
+    return uindex;
+  }
+
   uint32_t  RichQueryAny::SearchDoc( uint32_t tofind )
   {
     uint32_t  uFound;
@@ -943,9 +1060,12 @@ namespace queries {
     return entityId = uFound;
   }
 
-  auto  RichQueryAny::BuildCopy() -> mtc::api<RichQueryBase>
+  auto  RichQueryAny::BuildCopy( const Bounds& bounds ) -> mtc::api<RichQueryBase>
   {
-    return new RichQueryAny( *this );
+    try
+      {  return new RichQueryAny( *this, bounds, false );  }
+    catch ( const uninitialized_exception& )
+      {  return nullptr;  }
   }
 
   Abstract& RichQueryAny::GetChunks( uint32_t udocid, mtc::span<const char> format, const Limits& limits )
@@ -1005,6 +1125,47 @@ namespace queries {
     return abstract;
   }
 
+// RichQueryNot implementation
+
+  auto  RichQueryNot::LastIndex() -> uint32_t
+  {
+    return querySet.front().subQuery->LastIndex();
+  }
+
+  auto  RichQueryNot::SearchDoc( uint32_t tofind ) -> uint32_t
+  {
+    for ( abstract = {}; entityId < tofind; ++tofind )
+    {
+      auto  next = querySet.begin();
+
+      if ( (tofind = querySet.front().SearchDoc( tofind )) == uint32_t(-1) )
+        return entityId = uint32_t(-1);
+
+      for ( ++next; next != querySet.end(); ++next )
+        if ( next->SearchDoc( tofind ) == tofind )
+          break;
+
+      if ( next == querySet.end() )
+        return entityId = tofind;
+    }
+    return entityId;
+  }
+
+  auto  RichQueryNot::BuildCopy( const Bounds& bounds ) -> mtc::api<RichQueryBase>
+  {
+    try
+      {  return new RichQueryNot( *this, bounds, true );  }
+    catch ( const uninitialized_exception& )
+      {  return nullptr;  }
+  }
+
+  auto  RichQueryNot::GetChunks( uint32_t entity, mtc::span<const char> markup, const Limits& limits ) -> Abstract&
+  {
+    if ( entityId == entity && abstract.dwMode == Abstract::None )
+      abstract = querySet.front().GetChunks( entity, markup, limits );
+    return abstract;
+  }
+
 // RichQueryField implementation
 
   RichQueryField::RichQueryField(
@@ -1017,11 +1178,16 @@ namespace queries {
       mtc::bitset_set( matchSet, id );
   }
 
-  RichQueryField::RichQueryField( const RichQueryField& src ): RichQueryBase( src ),
-    matchSet( src.matchSet )
+  RichQueryField::RichQueryField( const RichQueryField& source, const Bounds& bounds ):
+    RichQueryBase( source, bounds ), matchSet( source.matchSet )
   {
-    if ( src.subQuery != nullptr )
-      subQuery = src.subQuery->BuildCopy();
+    if ( source.subQuery != nullptr )
+      subQuery = source.subQuery->BuildCopy( bounds );
+  }
+
+  auto  RichQueryField::LastIndex() -> uint32_t
+  {
+    return subQuery->LastIndex();
   }
 
   auto  RichQueryField::SearchDoc( uint32_t id ) -> uint32_t
@@ -1032,9 +1198,12 @@ namespace queries {
 
   // RichQueryCover implementation
 
-  auto  RichQueryCover::BuildCopy() -> mtc::api<RichQueryBase>
+  auto  RichQueryCover::BuildCopy( const Bounds& bounds ) -> mtc::api<RichQueryBase>
   {
-    return new RichQueryCover( *this );
+    try
+      {  return new RichQueryCover( *this, bounds );  }
+    catch ( const uninitialized_exception& )
+      {  return nullptr;  }
   }
 
   Abstract& RichQueryCover::GetChunks( uint32_t id, mtc::span<const char> ft, const Limits& limits )
@@ -1086,9 +1255,12 @@ namespace queries {
 
   // RichQueryMatch implementation
 
-  auto  RichQueryMatch::BuildCopy() -> mtc::api<RichQueryBase>
+  auto  RichQueryMatch::BuildCopy( const Bounds& bounds ) -> mtc::api<RichQueryBase>
   {
-    return new RichQueryMatch( *this );
+    try
+      {  return new RichQueryMatch( *this, bounds );  }
+    catch ( const uninitialized_exception& )
+      {  return nullptr;  }
   }
 
   Abstract& RichQueryMatch::GetChunks( uint32_t id, mtc::span<const char> ft, const Limits& limits )
@@ -1178,9 +1350,12 @@ namespace queries {
       mkups( index->GetKeyBlock( "fmt" ) )  {}
 
     auto  BuildQuery( const mtc::zval&, const QuerySettings& ) const -> SubQuery;
-  template <bool Forced, class Output>
-    auto  CreateArgs( mtc::api<Output>, const mtc::array_zval&, const QuerySettings& ) const -> SubQuery;
     auto  CreateWord( const mtc::widestr&, const QuerySettings& ) const -> SubQuery;
+  template <bool Forced, class Output>
+    auto  CreateArgs( mtc::api<Output>,
+      const mtc::array_zval&, const QuerySettings& ) const -> SubQuery;
+    auto  CreateExcl(
+      const mtc::array_zval&, const QuerySettings& ) const -> SubQuery;
     auto  AsWildcard( const mtc::widestr&, const QuerySettings& ) const -> SubQuery;
     auto  GetTermIdf( const mtc::widestr& ) const -> double;
     auto  GetTermIdf( const context::Key& ) const -> double;
@@ -1195,6 +1370,8 @@ namespace queries {
       return CreateWord( op.GetString(), sets );
     if ( op == "wildcard" )
       return AsWildcard( op.GetString(), sets );
+    if ( op == "!" )
+      return CreateExcl( op.GetVector(), sets );
     if ( op == "&&" )
       return CreateArgs<true> ( mtc::api( new RichQueryAll( mkups ) ), op.GetVector(), sets );
     if ( op == "||" )
@@ -1240,12 +1417,37 @@ namespace queries {
       if ( pquery != nullptr )  squery = BuildQuery( *pquery, sets );
         else throw std::invalid_argument( "missing 'query' as limited object" );
 
-      if ( op == "match" )
-        return { new RichQueryMatch( mkups, fields, squery.query ), squery.range };
-      else
-        return { new RichQueryCover( mkups, fields, squery.query ), squery.range };
+      return op == "match" ?
+        SubQuery{ new RichQueryMatch( mkups, fields, squery.query ), squery.range } :
+        SubQuery{ new RichQueryCover( mkups, fields, squery.query ), squery.range };
     }
     throw std::logic_error( "operator not supported" );
+  }
+
+  auto  RichBuilder::CreateWord( const mtc::widestr& str, const QuerySettings& sets ) const -> SubQuery
+  {
+    auto  lexemes = lproc.Lemmatize( str );
+    auto  ablocks = std::vector<std::pair<mtc::api<IEntities>, TermRanker>>();
+    auto  fWeight = GetTermIdf( str );
+    auto  pkblock = mtc::api<IEntities>();
+
+  // check for statistics is present
+    if ( fWeight <= 0.0 )
+      return { nullptr, 0.0 };
+
+  // request terms for the word
+    for ( auto& lexeme: lexemes )
+      if ( (pkblock = index->GetKeyBlock( { lexeme.data(), lexeme.size() } )) != nullptr )
+        ablocks.emplace_back( pkblock, TermRanker( sets.fieldSet, lexeme, fWeight, sets.isStrict ) );
+
+  // if nothing found, return nullptr
+    if ( ablocks.size() == 0 )
+      return { nullptr, 0.0 };
+
+    if ( ablocks.size() != 1 )
+      return { new RichMultiTerm( mkups, ablocks ), fWeight };
+
+    return { new RichQueryTerm( mkups, ablocks.front().first, std::move( ablocks.front().second ) ), fWeight };
   }
 
   template <bool Forced, class Output>
@@ -1290,30 +1492,33 @@ namespace queries {
     return { to.ptr(), fWeight };
   }
 
-  auto  RichBuilder::CreateWord( const mtc::widestr& str, const QuerySettings& sets ) const -> SubQuery
+  auto  RichBuilder::CreateExcl( const mtc::array_zval& args, const QuerySettings& fds ) const -> SubQuery
   {
-    auto  lexemes = lproc.Lemmatize( str );
-    auto  ablocks = std::vector<std::pair<mtc::api<IEntities>, TermRanker>>();
-    auto  fWeight = GetTermIdf( str );
-    auto  pkblock = mtc::api<IEntities>();
+    auto  queries = std::vector<SubQuery>();
+    auto  created = SubQuery();
+    auto  exclude = mtc::api( new RichQueryNot( mkups ) );
 
-  // check for statistics is present
-    if ( fWeight <= 0.0 )
+    for ( size_t i = 0; i != args.size(); ++i )
+    {
+      if ( (created = BuildQuery( args[i], fds )).query == nullptr )
+      {
+        if ( i == 0 )
+          return { nullptr, 0.0 };
+        continue;
+      }
+      queries.push_back( std::move( created ) );
+    }
+
+    if ( queries.empty() )
       return { nullptr, 0.0 };
 
-  // request terms for the word
-    for ( auto& lexeme: lexemes )
-      if ( (pkblock = index->GetKeyBlock( { lexeme.data(), lexeme.size() } )) != nullptr )
-        ablocks.emplace_back( pkblock, TermRanker( sets.fieldSet, lexeme, fWeight, sets.isStrict ) );
+    if ( queries.size() == 1 )
+      return queries.front();
 
-  // if nothing found, return nullptr
-    if ( ablocks.size() == 0 )
-      return { nullptr, 0.0 };
+    for ( auto& next: queries )
+      exclude->AddQueryNode( next.query, next.range );
 
-    if ( ablocks.size() != 1 )
-      return { new RichMultiTerm( mkups, ablocks ), fWeight };
-
-    return { new RichQueryTerm( mkups, ablocks.front().first, std::move( ablocks.front().second ) ), fWeight };
+    return { exclude.ptr(), queries.front().range };
   }
 
   auto  RichBuilder::AsWildcard( const mtc::widestr& str, const QuerySettings& sets ) const -> SubQuery

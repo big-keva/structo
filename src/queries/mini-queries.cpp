@@ -21,9 +21,8 @@ namespace queries {
     Abstract            abstract = {};
 
   public:
-    MiniQueryBase( mtc::api<IEntities> dsr ): docStats( dsr )
-    {
-    }
+    MiniQueryBase( mtc::api<IEntities> docStats );
+    MiniQueryBase( const MiniQueryBase&, const Bounds& );
 
     auto  SetAbstract( const BM25Term* beg, const BM25Term* end ) -> Abstract&
     {
@@ -59,9 +58,10 @@ namespace queries {
     MiniQueryTerm( const MiniQueryTerm& );
 
   // overridables
-    auto  SearchDoc( uint32_t ) -> uint32_t         override;
-    auto  Duplicate(          ) -> mtc::api<IQuery> override;
-    auto  GetChunks( uint32_t ) -> Abstract&        override;
+    auto  LastIndex() -> uint32_t override;
+    auto  SearchDoc( uint32_t ) -> uint32_t override;
+    auto  GetChunks( uint32_t ) -> Abstract& override;
+    auto  Duplicate( const Bounds& ) -> mtc::api<IQuery> override;
 
     implement_lifetime_control
 
@@ -102,9 +102,10 @@ namespace queries {
 
     // IQuery overridables
 
-    auto  SearchDoc( uint32_t ) -> uint32_t         override;
-    auto  Duplicate(          ) -> mtc::api<IQuery> override;
-    auto  GetChunks( uint32_t ) -> Abstract&        override;
+    auto  LastIndex() -> uint32_t override;
+    auto  SearchDoc( uint32_t ) -> uint32_t override;
+    auto  GetChunks( uint32_t ) -> Abstract& override;
+    auto  Duplicate( const Bounds& ) -> mtc::api<IQuery> override;
 
     implement_lifetime_control
 
@@ -156,12 +157,13 @@ namespace queries {
     using MiniQueryArgs::MiniQueryArgs;
 
   public:
-    MiniQueryAll( const MiniQueryAll& );
+    MiniQueryAll( const MiniQueryAll&, const Bounds& );
 
     // overridables
-    auto  SearchDoc( uint32_t id ) -> uint32_t         override;
-    auto  Duplicate(             ) -> mtc::api<IQuery> override;
-    auto  GetChunks( uint32_t id ) -> Abstract&        override;
+    auto  LastIndex() -> uint32_t override;
+    auto  SearchDoc( uint32_t id ) -> uint32_t override;
+    auto  GetChunks( uint32_t id ) -> Abstract& override;
+    auto  Duplicate( const Bounds& ) -> mtc::api<IQuery> override;
 
     implement_lifetime_control
 
@@ -177,9 +179,10 @@ namespace queries {
     MiniQueryFuzzy( const MiniQueryFuzzy& );
 
     // overridables
-    auto  SearchDoc( uint32_t ) -> uint32_t         override;
-    auto  Duplicate(          ) -> mtc::api<IQuery> override;
-    auto  GetChunks( uint32_t ) -> Abstract&        override;
+    auto  LastIndex() -> uint32_t override;
+    auto  SearchDoc( uint32_t ) -> uint32_t override;
+    auto  GetChunks( uint32_t ) -> Abstract& override;
+    auto  Duplicate( const Bounds& ) -> mtc::api<IQuery> override;
 
     implement_lifetime_control
 
@@ -196,15 +199,28 @@ namespace queries {
     MiniQueryAny( const MiniQueryAny& );
 
     // overridables
-    auto  SearchDoc( uint32_t ) -> uint32_t         override;
-    auto  Duplicate(          ) -> mtc::api<IQuery> override;
-    auto  GetChunks( uint32_t ) -> Abstract&        override;
+    auto  LastIndex() -> uint32_t override;
+    auto  SearchDoc( uint32_t ) -> uint32_t override;
+    auto  GetChunks( uint32_t ) -> Abstract& override;
+    auto  Duplicate( const Bounds& ) -> mtc::api<IQuery> override;
 
     implement_lifetime_control
 
   protected:
     std::vector<Abstract*>  selected;
   };
+
+  // MiniQueryBase implementation
+
+  MiniQueryBase::MiniQueryBase( mtc::api<IEntities> docStatsBlock ):
+    docStats( docStatsBlock )
+  {
+  }
+
+  MiniQueryBase::MiniQueryBase( const MiniQueryBase& source, const Bounds& bounds ):
+    docStats( source.docStats->Copy( bounds ) )
+  {
+  }
 
   // MiniQueryTerm implementation
 
@@ -327,9 +343,9 @@ namespace queries {
     return StrictSearch( id );
   }
 
-  auto  MiniQueryAll::Duplicate() -> mtc::api<IQuery>
+  auto  MiniQueryAll::Duplicate( const Bounds& bounds ) -> mtc::api<IQuery>
   {
-    return new MiniQueryAll( *this );
+    return new MiniQueryAll( *this, bounds );
   }
 
   /*
@@ -401,9 +417,9 @@ namespace queries {
     }
   }
 
-  auto  MiniQueryFuzzy::Duplicate() -> mtc::api<IQuery>
+  auto  MiniQueryFuzzy::Duplicate( const Bounds& bounds) -> mtc::api<IQuery>
   {
-    return new MiniQueryFuzzy( *this );
+    return new MiniQueryFuzzy( *this, bounds );
   }
 
   auto  MiniQueryFuzzy::GetChunks( uint32_t udocid ) -> Abstract&
@@ -445,9 +461,9 @@ namespace queries {
     return entityId = uFound;
   }
 
-  auto  MiniQueryAny::Duplicate() -> mtc::api<IQuery>
+  auto  MiniQueryAny::Duplicate( const Bounds& bounds ) -> mtc::api<IQuery>
   {
-    return new MiniQueryAny( *this );
+    return new MiniQueryAny( *this, bounds );
   }
 
   auto  MiniQueryAny::GetChunks( uint32_t udocid ) -> Abstract&

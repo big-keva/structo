@@ -1,5 +1,6 @@
 # if !defined( __structo_queries_hpp__ )
 # define __structo_queries_hpp__
+# include "bounds.hpp"
 # include <mtc/interfaces.h>
 # include <initializer_list>
 # include <mtc/arena.hpp>
@@ -101,9 +102,10 @@ namespace queries {
   */
   struct IQuery: mtc::Iface
   {
+    virtual uint32_t          LastIndex() = 0;
     virtual uint32_t          SearchDoc( uint32_t ) = 0;
     virtual const Abstract&   GetTuples( uint32_t ) = 0;
-    virtual mtc::api<IQuery>  Duplicate(          ) = 0;
+    virtual mtc::api<IQuery>  Duplicate( const Bounds& = {} ) = 0;
   };
 
   auto  GetQuotation( const Abstract& ) -> Abstract::Entries;
