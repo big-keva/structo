@@ -23,7 +23,7 @@ namespace queries {
     if ( op == "wildcard" )
       return (void)(terms[widechar('{') + op.GetString() + widechar('}')] = mtc::zmap{ { "count", uint32_t(0) } });
 
-    if ( op == "&&" || op == "||" || op == "quote" || op == "order" || op == "fuzzy" )
+    if ( op == "&&" || op == "||" || op == "quote" || op == "order" || op == "fuzzy" || op == "!" )
       return LoadQueryTerms( terms, op.GetVector() );
 
     if ( op == "cover" || op == "match" || op == "limit" )
@@ -121,7 +121,7 @@ namespace queries {
           __FILE__ ":" LINE_STRING );
       }
 
-    return terms;
+    return zterms;
   }
 
 }}

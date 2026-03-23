@@ -73,14 +73,14 @@ template <class T>
       return { Operator::AND, ++beg != end && !beg->LeftSpaced() && *beg == '&' ? 2U : 1U };
     if ( *beg == '|' )
       return { Operator::OR,  ++beg != end && !beg->LeftSpaced() && *beg == '|' ? 2U : 1U };
-    if ( *beg == '!' || *beg == '-' )
+    if ( *beg == '!' )
       return { Operator::NOT, 1 };
     if ( *beg == "and" )
       return { Operator::AND, 1 };
     if ( *beg == "or" )
       return { Operator::OR, 1 };
     if ( *beg == "not" )
-      return { Operator::OR, 1 };
+      return { Operator::NOT, 1 };
     return { Operator::Unknown, 0 };
   }
 
