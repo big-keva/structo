@@ -96,28 +96,32 @@ namespace indexer {
 
   // Override::Entities implementation
 
-  Override::Entities::Entities( mtc::api<IEntities> ients, const Bitmap<>& stash, const Iface* owner ):
+  Override::Entities::Entities( mtc::api<IEntities> ients, const Bitmap<>* stash, const Iface* owner ):
     entities( ients ),
-    suppress( stash ),
-    lifetime( owner )
+    lifetime( owner ),
+    suppress( stash )
   {
   }
 
-  Override::Entities::Entities( const Entities& ents ):
-    entities( ents.entities ),
-    suppress( ents.suppress ),
-    lifetime( ents.lifetime )
+  Override::Entities::Entities( mtc::api<IEntities> ients, uint32_t shift ):
+    entities( ients ),
+    entShift( shift )
   {
   }
 
   auto  Override::Entities::Find( uint32_t tofind ) -> Reference
   {
-    auto  getRefer = entities->Find( tofind );
+    auto  getRefer = entities->Find( tofind - entShift );
 
-    while ( getRefer.uEntity != uint32_t(-1) && suppress.Get( getRefer.uEntity ) )
+    while ( getRefer.uEntity != uint32_t(-1) && suppress != nullptr && suppress->Get( getRefer.uEntity ) )
       getRefer = entities->Find( getRefer.uEntity + 1 );
 
-    return getRefer;
+    return { getRefer.uEntity + entShift, getRefer.details };
+  }
+
+  auto  Override::Entities::Last() const -> uint32_t
+  {
+    return entities->Last() + entShift;
   }
 
   auto  Override::Entities::Size() const -> uint32_t
@@ -130,9 +134,17 @@ namespace indexer {
     return entities->Type();
   }
 
-  auto  Override::Entities::Copy() const -> mtc::api<IEntities>
+  auto  Override::Entities::Copy( const Bounds& bounds ) const -> mtc::api<IEntities>
   {
-    return new Entities( *this );
+    auto  subent = entities->Copy( bounds );
+
+    if ( subent != nullptr )
+    {
+      auto  newent = mtc::api( new Entities( subent, suppress, lifetime ) );
+        newent->entShift = entShift;
+      return newent.ptr();
+    }
+    return nullptr;
   }
 
 }}
