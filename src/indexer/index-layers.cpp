@@ -9,6 +9,8 @@ namespace indexer {
 
   class IndexLayers::Entities final: public IContentsIndex::IEntities
   {
+    friend class IndexLayers;
+
     struct BlockEntry
     {
       uint32_t            uLower;
@@ -28,15 +30,15 @@ namespace indexer {
 
   public:
     Entities( const Iface* parent = nullptr );
-    Entities( const Entities& );
 
     void  AddBlock( const BlockEntry& );
 
     // overridables
+    auto  Copy( const Bounds& ) const -> mtc::api<IEntities> override;
     auto  Find( uint32_t ) -> Reference override;
+    auto  Last() const -> uint32_t override;
     auto  Size() const -> uint32_t override {  return ncount;  }
     auto  Type() const -> uint32_t override {  return bktype;  }
-    auto  Copy() const -> mtc::api<IEntities> override;
 
   };
 
@@ -111,7 +113,7 @@ namespace indexer {
 
     for ( auto& next: layers )
     {
-      auto  pblock = next.pIndex->GetKeyBlock( key );
+     auto  pblock = next.pIndex->GetKeyBlock( key );
 
       if ( pblock != nullptr )
       {
@@ -121,7 +123,17 @@ namespace indexer {
         entities->AddBlock( { next.uLower, next.uUpper, pblock } );
       }
     }
-    return entities.ptr();
+
+  // check if blocks layers has only one block
+    if ( entities == nullptr || entities->Size() != 1 )
+      return entities.ptr();
+
+    if ( entities->blocks.front().uLower == 1 )
+      return entities->blocks.front().entSet;
+
+    return new Override::Entities(
+      entities->blocks.front().entSet,
+      entities->blocks.front().uLower - 1 );
   }
 
   auto  IndexLayers::getKeyStats( const std::string_view& key ) const -> IContentsIndex::BlockInfo
@@ -217,15 +229,6 @@ namespace indexer {
   {
   }
 
-  IndexLayers::Entities::Entities( const Entities& ents ):
-    holder( ents.holder ),
-    blocks( ents.blocks ),
-    pblock( blocks.begin() + (ents.pblock - ents.blocks.begin()) ),
-    ncount( ents.ncount ),
-    bktype( ents.bktype )
-  {
-  }
-
   void  IndexLayers::Entities::AddBlock( const BlockEntry& block )
   {
     if ( blocks.empty() )
@@ -255,9 +258,32 @@ namespace indexer {
     return { uint32_t(-1), {} };
   }
 
-  auto  IndexLayers::Entities::Copy() const -> mtc::api<IEntities>
+  auto  IndexLayers::Entities::Last() const -> uint32_t
   {
-    return new Entities( *this );
+    return blocks.size() != 0 ? blocks.back().uUpper : 0;
+  }
+
+  auto  IndexLayers::Entities::Copy( const Bounds& bounds ) const -> mtc::api<IEntities>
+  {
+    auto  newent = mtc::api( new Entities( holder ) );
+
+    newent->bktype = bktype;
+
+  // add blocks with non-empty Entities after copying
+    for ( auto& block: blocks )
+      if ( block.uLower <= bounds.uUpper
+        && block.uUpper >= bounds.uLower )
+      {
+        auto  blcopy = BlockEntry{
+          block.uLower,
+          block.uUpper,
+          block.entSet->Copy( { bounds.uLower - block.uLower + 1, bounds.uUpper - block.uLower + 1 } ) };
+
+        if ( blcopy.entSet != nullptr )
+          newent->AddBlock( blcopy );
+    }
+
+    return newent->blocks.size() != 0 ? newent.ptr() : nullptr;
   }
 
   // IndexLayers::ContentsList implementation

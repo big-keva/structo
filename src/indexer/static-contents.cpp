@@ -86,15 +86,17 @@ namespace static_ {
 
   public:
     EntitiesBase( const mtc::api<const mtc::IByteBuffer>&, uint32_t, uint32_t, const ContentsIndex* );
-    EntitiesBase( const EntitiesBase& ) = default;
+    EntitiesBase( const EntitiesBase&, const Bounds& );
 
   // overridables
+    auto  Last() const -> uint32_t override;
     auto  Size() const -> uint32_t override {  return ncount;  }
     auto  Type() const -> uint32_t override {  return bkType;  }
 
   protected:
     const uint32_t                    bkType;
     const uint32_t                    ncount;
+    const Bounds                      limits;   // [min, max[
     mtc::api<const ContentsIndex>     parent;
     mtc::api<const mtc::IByteBuffer>  iblock;
     const char* const                 origin;
@@ -102,8 +104,8 @@ namespace static_ {
     const char*                       ptrtop;
     Reference                         curref = { 0, { nullptr, 0 } };
     mtc::api<DocIndex>                pindex;
-    DocIndex::const_iterator          dowBeg = {};
-    DocIndex::const_iterator          dowEnd = {};
+    const DocDowel*                   dowBeg = nullptr;
+    const DocDowel*                   dowEnd = nullptr;
 
   };
 
@@ -112,10 +114,11 @@ namespace static_ {
     using EntitiesBase::EntitiesBase;
 
   public:
-    EntitiesLite( const EntitiesLite& src ): EntitiesBase( src ) {}
+    EntitiesLite( const EntitiesLite& source, const Bounds& bounds ):
+      EntitiesBase( source, bounds ) {}
 
     auto  Find( uint32_t ) -> Reference override;
-    auto  Copy() const -> mtc::api<IEntities> override;
+    auto  Copy( const Bounds& ) const -> mtc::api<IEntities> override;
 
     implement_lifetime_control
   };
@@ -125,10 +128,11 @@ namespace static_ {
     using EntitiesBase::EntitiesBase;
 
   public:
-    EntitiesRich( const EntitiesRich& src ): EntitiesBase( src ) {}
+    EntitiesRich( const EntitiesRich& source, const Bounds& bounds ):
+      EntitiesBase( source, bounds ) {}
 
     auto  Find( uint32_t ) -> Reference override;
-    auto  Copy() const -> mtc::api<IEntities> override;
+    auto  Copy( const Bounds& ) const -> mtc::api<IEntities> override;
 
     implement_lifetime_control
   };
@@ -332,6 +336,7 @@ namespace static_ {
     const ContentsIndex*                    own ):
       bkType( btp ),
       ncount( cnt ),
+      limits{ 1, uint32_t(-1) },
       parent( own ),
       iblock( src ),
       origin( src->GetPtr() ),
@@ -365,45 +370,101 @@ namespace static_ {
           old.offset += addPos;
         pindex->emplace_back( old );
       }
-      dowBeg = pindex->cbegin();
-      dowEnd = pindex->cend();
+      dowBeg = pindex->data();
+      dowEnd = pindex->data() + pindex->size();
     }
     finish -= (idxlen + 3);
+  }
+
+  ContentsIndex::EntitiesBase::EntitiesBase( const EntitiesBase& source, const Bounds& bounds ):
+    bkType( source.bkType ),
+    ncount( source.ncount ),
+    limits( bounds ),
+    parent( source.parent ),
+    iblock( source.iblock ),
+    origin( source.origin ),
+    finish( source.finish ),
+    ptrtop( source.ptrtop ),
+    pindex( source.pindex ),
+    dowBeg( source.dowBeg ),
+    dowEnd( source.dowEnd )
+  {
+    if ( pindex != nullptr )
+    {
+      auto  lStart = DocDowel{ 0U, 0UL };
+      auto  lLimit = dowBeg;
+
+    // set lower limit to new navi position
+      while ( dowBeg != dowEnd && dowBeg->lastId < bounds.uLower )
+        lStart = *(lLimit = dowBeg++);
+
+    // set upper limit to new navi position
+      while ( dowEnd > dowBeg && dowEnd[-1].lastId > bounds.uUpper )
+        --dowEnd;
+
+    // check if new limits are empty
+      if ( (dowBeg = lLimit) > dowEnd )
+      {
+        iblock = nullptr;
+        ptrtop = finish;
+      }
+        else
+      {
+        curref.uEntity = lStart.lastId;
+        ptrtop = origin + lStart.offset;
+      }
+    }
+  }
+
+  auto  ContentsIndex::EntitiesBase::Last() const -> uint32_t
+  {
+    return parent->GetMaxIndex();
   }
 
   // ContentsIndex::EntitiesLite implementation
 
   auto  ContentsIndex::EntitiesLite::Find( uint32_t tofind ) -> Reference
   {
-    if ( curref.uEntity >= (tofind = std::max( tofind, 1U )) )
+    if ( (tofind = std::max( tofind, limits.uLower )) >= limits.uUpper )
+      return curref = { uint32_t(-1), { nullptr, 0 } };
+
+    if ( curref.uEntity >= tofind )
       return curref;
 
-    for ( tofind = std::max( tofind, 1U ); ptrtop < finish; )
+    while ( ptrtop < finish )
     {
       unsigned  udelta;
 
       if ( (ptrtop = ::FetchFrom( ptrtop, udelta )) == nullptr )
-        return curref = { (uint32_t)-1, { nullptr, 0 } };
+        break;
 
-      if ( (curref.uEntity += udelta + 1) >= tofind && !parent->shadowed.Get( curref.uEntity ) )
+      if ( (curref.uEntity += udelta + 1) >= limits.uUpper )
+        break;
+
+      if ( curref.uEntity >= tofind && !parent->shadowed.Get( curref.uEntity ) )
         return curref;
     }
     return curref = { (uint32_t)-1, { nullptr, 0 } };
   }
 
-  auto  ContentsIndex::EntitiesLite::Copy() const -> mtc::api<IEntities>
+  auto  ContentsIndex::EntitiesLite::Copy( const Bounds& bounds ) const -> mtc::api<IEntities>
   {
-    return new EntitiesLite( *this );
+    auto  copied = mtc::api( new EntitiesLite( *this, bounds ) );
+
+    return copied->iblock != nullptr ? copied.ptr() : nullptr;
   }
 
   // ContentsIndex::EntitiesRich implementation
 
   auto  ContentsIndex::EntitiesRich::Find( uint32_t tofind ) -> Reference
   {
-    if ( curref.uEntity >= (tofind = std::max( tofind, 1U )) )
+    if ( (tofind = std::max( tofind, limits.uLower )) >= limits.uUpper )
+      return curref = { uint32_t(-1), { nullptr, 0 } };
+
+    if ( curref.uEntity >= tofind )
       return curref;
 
-  // check in th edocuments index
+  // check in the documents index
     for ( ; dowBeg != dowEnd && dowBeg->lastId < tofind; ++dowBeg )
     {
       curref.uEntity = dowBeg->lastId;
@@ -417,9 +478,12 @@ namespace static_ {
       unsigned  ublock;
 
       if ( (ptrtop = ::FetchFrom( ::FetchFrom( ptrtop, udelta ), ublock )) == nullptr )
-        return curref = { (uint32_t)-1, { nullptr, 0 } };
+        break;
 
-      if ( (curref.uEntity += udelta + 1) >= tofind && !parent->shadowed.Get( curref.uEntity ) )
+      if ( (curref.uEntity += udelta + 1) >= limits.uUpper )
+        break;
+
+      if ( curref.uEntity >= tofind && !parent->shadowed.Get( curref.uEntity ) )
       {
         curref.details = { ptrtop, ublock };
         return ptrtop += ublock, curref;
@@ -429,9 +493,11 @@ namespace static_ {
     return curref = { (uint32_t)-1, { nullptr, 0 } };
   }
 
-  auto  ContentsIndex::EntitiesRich::Copy() const -> mtc::api<IEntities>
+  auto  ContentsIndex::EntitiesRich::Copy( const Bounds& bounds ) const -> mtc::api<IEntities>
   {
-    return new EntitiesRich( *this );
+    auto  copied = mtc::api( new EntitiesRich( *this, bounds ) );
+
+    return copied->iblock != nullptr ? copied.ptr() : nullptr;
   }
 
   // ContentsIndex::EntityIterator implementation

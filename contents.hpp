@@ -1,8 +1,8 @@
 # if !defined( __structo_contents_hpp__ )
 # define __structo_contents_hpp__
+# include "bounds.hpp"
 # include <mtc/iStream.h>
 # include <mtc/iBuffer.h>
-# include <functional>
 # include <mtc/span.hpp>
 # include <mtc/zmap.h>
 
@@ -231,10 +231,11 @@ namespace structo
       std::string_view  details;
     };
 
+    virtual auto  Copy( const Bounds& = {} ) const -> mtc::api<IEntities> = 0;
     virtual auto  Find( uint32_t ) -> Reference = 0;
+    virtual auto  Last() const -> uint32_t = 0;
     virtual auto  Size() const -> uint32_t = 0;
     virtual auto  Type() const -> uint32_t = 0;
-    virtual auto  Copy() const -> mtc::api<IEntities> = 0;
   };
 
   struct IContentsIndex::IEntitiesList: Iface

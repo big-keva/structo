@@ -260,7 +260,7 @@ namespace fusion  {
     if ( (pblock = getKeyBlock( key )) == nullptr )
       return nullptr;
 
-    return new Override::Entities( pblock, banset, this );
+    return new Override::Entities( pblock, &banset, this );
   }
 
   auto  ContentsIndex::GetKeyStats( const std::string_view& key ) const -> BlockInfo

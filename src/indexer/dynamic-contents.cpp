@@ -102,10 +102,11 @@ namespace dynamic {
       parent( ents.parent ) {}
 
   public:     // IEntities overridables
+    auto  Copy( const Bounds& ) const -> mtc::api<IEntities> override;
     auto  Find( uint32_t ) -> Reference override;
+    auto  Last() const -> uint32_t override;
     auto  Type() const -> uint32_t override {  return pwhere->bkType;  }
     auto  Size() const -> uint32_t override {  return pwhere->ncount.load();  }
-    auto  Copy() const -> mtc::api<IEntities> override;
 
   protected:
     ChainHook*                    pwhere;
@@ -299,6 +300,11 @@ namespace dynamic {
 
   // ContentsIndex::Entities implemenation
 
+  auto  ContentsIndex::Entities::Copy( const Bounds& ) const -> mtc::api<IEntities>
+  {
+    return new Entities( *this );
+  }
+
   auto  ContentsIndex::Entities::Find( uint32_t id ) -> Reference
   {
     while ( pchain != nullptr && (pchain->entity < id || parent->shadowed.Get( pchain->entity )) )
@@ -310,9 +316,9 @@ namespace dynamic {
       return { uint32_t(-1), { nullptr, 0 } };
   }
 
-  auto  ContentsIndex::Entities::Copy() const -> mtc::api<IEntities>
+  auto  ContentsIndex::Entities::Last() const -> uint32_t
   {
-    return new Entities( *this );
+    return parent->GetMaxIndex();
   }
 
   // contents implementation
