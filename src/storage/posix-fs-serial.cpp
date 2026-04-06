@@ -139,14 +139,26 @@ namespace posixFS {
   auto  Serialized::Entities() -> mtc::api<const mtc::IByteBuffer>
   {
     if ( entities == nullptr )
-      entities = LoadByteBuffer( policies, Unit::entities );
+    {
+      try
+      {
+        entities = LoadByteBuffer( policies, Unit::entities );
+      }
+      catch ( const mtc::file_error& )  {}
+    }
     return entities;
   }
 
   auto  Serialized::Contents() -> mtc::api<const mtc::IByteBuffer>
   {
     if ( contents == nullptr )
-      contents = LoadByteBuffer( policies, Unit::contents );
+    {
+      try
+      {
+        contents = LoadByteBuffer( policies, Unit::contents );
+      }
+      catch ( const mtc::file_error& )  {}
+    }
     return contents;
   }
 
@@ -154,9 +166,12 @@ namespace posixFS {
   {
     if ( linkages == nullptr )
     {
-      auto  infile = mtc::OpenFileStream( policies.GetPolicy( Unit::linkages )->GetFilePath( Unit::linkages ).c_str(),
-        O_RDONLY, mtc::enable_exceptions );
-      linkages = new BlocksRepo( infile );
+      try
+      {
+        linkages = new BlocksRepo( OpenFileStream( policies.GetPolicy( Unit::linkages )->GetFilePath(
+          Unit::linkages ).c_str(), O_RDONLY, mtc::enable_exceptions ) );
+      }
+      catch ( const mtc::file_error& )  {}
     }
     return linkages;
   }
@@ -165,7 +180,7 @@ namespace posixFS {
   {
     if ( packages == nullptr )
     {
-      packages = CreateDumpStore( mtc::OpenFileStream( policies.GetPolicy( Unit::packages )->GetFilePath( Unit::packages ).c_str(),
+      packages = CreateDumpStore( OpenFileStream( policies.GetPolicy( Unit::packages )->GetFilePath( Unit::packages ).c_str(),
         O_RDONLY, mtc::disable_exceptions ).ptr() );
     }
     return packages;

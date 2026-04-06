@@ -535,7 +535,7 @@ namespace static_ {
   auto  Index::Create( mtc::api<IStorage::ISerialized> serialized ) -> mtc::api<IContentsIndex>
   {
     if ( serialized->Entities() == nullptr )
-      throw std::invalid_argument( "static_::ContentsIndex::Create() must not be called" );
+      throw std::invalid_argument( "could not open index, no '.entities' found @" __FILE__ ":" LINE_STRING );
     return new ContentsIndex( serialized );
   }
 
