@@ -31,10 +31,13 @@ namespace structo {
     };
 
     virtual int   Lemmatize( IWord*, unsigned /* flags */, const widechar*, size_t ) = 0;
+    virtual int   Wildcards( IWord*, unsigned /* flags */, const widechar*, size_t ) = 0;
 
   public:     // wrappers
     int   Lemmatize( IWord* out, unsigned opt, const std::basic_string_view<widechar>& str )
       {  return Lemmatize( out, opt, str.data(), str.size() );  }
+    int   Wildcards( IWord* out, unsigned opt, const std::basic_string_view<widechar>& str )
+      {  return Wildcards( out, opt, str.data(), str.size() );  }
   };
 
   typedef int  (*CreateLemmatizer)( ILemmatizer**, const char* );
