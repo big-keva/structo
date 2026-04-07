@@ -74,13 +74,18 @@ namespace queries {
   auto  RankJocker(
     const mtc::widestr&             token,
     const mtc::api<IContentsIndex>& index,
-    const context::Processor&     /*lproc*/ ) -> mtc::zmap
+    const context::Processor&       lproc ) -> mtc::zmap
   {
+    auto  lexTerms = lproc.Lemmatize( token, context::Processor::as_wildcard );
     auto  keyTempl = context::Key( 0xff, codepages::strtolower( token ) );
     auto  iterator = index->ListContents( { keyTempl.data(), keyTempl.size() } );
     auto  docTotal = index->GetMaxIndex() * 1.0;
     auto  negRange = 1.0;
     auto  keyCount = uint32_t{};
+
+  // get probability for lexical terms
+    for ( auto next = lexTerms.begin(); next != lexTerms.end() && negRange >= 0.01; ++next )
+      negRange *= 1.0 - index->GetKeyStats( { next->data(), next->size() } ).nCount / docTotal;
 
   // get additional probability for terms
     for ( auto next = iterator->Curr(); next.size() != 0 && negRange >= 0.01; next = iterator->Next() )
