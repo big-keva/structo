@@ -14,6 +14,7 @@ namespace context {
 
   public:
     int   Lemmatize( IWord*, unsigned, const widechar*, size_t ) override;
+    int   Wildcards( IWord*, unsigned, const widechar*, size_t ) override;
 
   protected:
     std::shared_ptr<std::pair<mtc::SharedLibrary, mtc::api<ILemmatizer>>>
@@ -39,6 +40,11 @@ namespace context {
   int   DynaModule::Lemmatize( IWord* lemmas, unsigned uflags, const widechar* pwsstr, size_t cchstr )
   {
     return holder != nullptr ? holder->second->Lemmatize( lemmas, uflags, pwsstr, cchstr ) : EFAULT;
+  }
+
+  int   DynaModule::Wildcards( IWord* lemmas, unsigned uflags, const widechar* pwsstr, size_t cchstr )
+  {
+    return holder != nullptr ? holder->second->Wildcards( lemmas, uflags, pwsstr, cchstr ) : EFAULT;
   }
 
   auto  LoadLemmatizer( const char* path, const char* args ) -> mtc::api<ILemmatizer>

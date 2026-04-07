@@ -30,6 +30,9 @@ namespace context {
       max_word_length = 64
     };
 
+    struct            as_wildcard_t {};
+    static constexpr  as_wildcard_t as_wildcard{};
+
   template <class Allocator>
     auto  Lemmatize( BaseImage<Allocator>& ) const -> BaseImage<Allocator>&;
   template <class Allocator>
@@ -42,6 +45,7 @@ namespace context {
     auto  WordBreak( BaseImage<Allocator>&, const ITextView&, const FieldHandler* = nullptr ) const -> BaseImage<Allocator>&;
 
     auto  Lemmatize( const mtc::widestr& ) const -> std::vector<Lexeme>;
+    auto  Lemmatize( const mtc::widestr&, const as_wildcard_t& ) const -> std::vector<Lexeme>;
     auto  MakeImage( const ITextView&, const FieldHandler* = nullptr ) const -> Image;
     auto  WordBreak( const ITextView&, const FieldHandler* = nullptr ) const -> Image;
 

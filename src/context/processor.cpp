@@ -26,6 +26,17 @@ namespace context {
     return std::move( Lemmatize( lexbuf, str.c_str(), str.length() ) );
   }
 
+  auto  Processor::Lemmatize( const mtc::widestr& str, const as_wildcard_t& ) const -> std::vector<Lexeme>
+  {
+    auto  lexbuf = std::vector<Lexeme>();
+
+    // get wildcards with language modules in dictionary mode
+    for ( auto& lang: languages )
+      lang.module->Wildcards( InsertTerms( lexbuf, lang.langId ).ptr(), 0, str );
+
+    return lexbuf;
+  }
+
   auto  Processor::AddModule( unsigned langId, const mtc::api<ILemmatizer>& module ) -> Processor&
   {
     languages.push_back( { langId, module } );
