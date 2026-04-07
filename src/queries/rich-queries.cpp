@@ -1523,7 +1523,7 @@ namespace queries {
 
   auto  RichBuilder::AsWildcard( const mtc::widestr& str, const QuerySettings& sets ) const -> SubQuery
   {
-    auto  lexemes = lproc.Lemmatize( str );
+    auto  lexemes = lproc.Lemmatize( str, context::Processor::as_wildcard );
     auto  ablocks = std::vector<std::pair<mtc::api<IEntities>, TermRanker>>();
     auto  fWeight = GetTermIdf( widechar('{') + str + widechar('}') );
     auto  pkblock = mtc::api<IEntities>();
