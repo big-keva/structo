@@ -20,14 +20,21 @@ namespace queries {
     mtc::api<IEntities> docStats;                           // formats and lengths
     Abstract            abstract = {};
 
-  public:
-    MiniQueryBase( mtc::api<IEntities> docStats );
+    class uninitialized_exception: public std::runtime_error
+      {  using runtime_error::runtime_error;  };
+
+    MiniQueryBase( mtc::api<IEntities> );
+    MiniQueryBase( const MiniQueryBase& ) = delete;
     MiniQueryBase( const MiniQueryBase&, const Bounds& );
 
     auto  SetAbstract( const BM25Term* beg, const BM25Term* end ) -> Abstract&
     {
       return (abstract = { end != beg ? Abstract::BM25 : Abstract::None, 0U, {} })
         .factors = { beg, end }, abstract;
+    }
+    auto  Duplicate( const Bounds& bounds ) -> mtc::api<IQuery> override
+    {
+      return BuildCopy( bounds ).ptr();
     }
     auto  GetTuples( uint32_t udocid ) -> const Abstract& override
     {
@@ -40,7 +47,9 @@ namespace queries {
       }
       return abstract;
     }
-    virtual   auto  GetChunks( uint32_t ) -> Abstract& = 0;
+    // local overridables
+    virtual auto  BuildCopy( const Bounds& ) -> mtc::api<MiniQueryBase> = 0;
+    virtual auto  GetChunks( uint32_t ) -> Abstract& = 0;
   };
 
  /*
@@ -49,19 +58,16 @@ namespace queries {
   */
   class MiniQueryTerm final: public MiniQueryBase
   {
+    MiniQueryTerm( const MiniQueryTerm&, const Bounds& );
+
   public:
-  // construction
-    MiniQueryTerm( mtc::api<IEntities> dsr, mtc::api<IEntities> blk, double idf ): MiniQueryBase( dsr ),
-      entBlock( blk ),
-      datatype( blk->Type() ),
-      bm25Term{ 0, idf, 0, 1 } {}
-    MiniQueryTerm( const MiniQueryTerm& );
+    MiniQueryTerm( mtc::api<IEntities>, mtc::api<IEntities>, double );
 
   // overridables
+    auto  BuildCopy( const Bounds& ) -> mtc::api<MiniQueryBase> override;
+    auto  GetChunks( uint32_t ) -> Abstract& override;
     auto  LastIndex() -> uint32_t override;
     auto  SearchDoc( uint32_t ) -> uint32_t override;
-    auto  GetChunks( uint32_t ) -> Abstract& override;
-    auto  Duplicate( const Bounds& ) -> mtc::api<IQuery> override;
 
     implement_lifetime_control
 
@@ -96,28 +102,32 @@ namespace queries {
         idfValue( idf ){}
     };
 
+    MiniMultiTerm( const MiniMultiTerm&, const Bounds& );
+
   public: // construction
     MiniMultiTerm( mtc::api<IEntities>, std::vector<std::pair<mtc::api<IEntities>, double>>& );
-    MiniMultiTerm( const MiniMultiTerm& );
 
     // IQuery overridables
 
+    auto  BuildCopy( const Bounds& ) -> mtc::api<MiniQueryBase> override;
+    auto  GetChunks( uint32_t ) -> Abstract& override;
     auto  LastIndex() -> uint32_t override;
     auto  SearchDoc( uint32_t ) -> uint32_t override;
-    auto  GetChunks( uint32_t ) -> Abstract& override;
-    auto  Duplicate( const Bounds& ) -> mtc::api<IQuery> override;
 
     implement_lifetime_control
 
   protected:
-    std::vector<KeyBlock>           blockSet;
-    BM25Term                        bm25term;
+    std::vector<KeyBlock> blockSet;
+    BM25Term              bm25term;
 
   };
 
   class MiniQueryArgs: public MiniQueryBase
   {
     using MiniQueryBase::MiniQueryBase;
+
+  protected:
+    MiniQueryArgs( const MiniQueryArgs&, const Bounds&, bool exceptIfNULL );
 
   public:
     void   AddQueryNode( mtc::api<MiniQueryBase>, double );
@@ -162,8 +172,8 @@ namespace queries {
     // overridables
     auto  LastIndex() -> uint32_t override;
     auto  SearchDoc( uint32_t id ) -> uint32_t override;
+    auto  BuildCopy( const Bounds& ) -> mtc::api<MiniQueryBase> override;
     auto  GetChunks( uint32_t id ) -> Abstract& override;
-    auto  Duplicate( const Bounds& ) -> mtc::api<IQuery> override;
 
     implement_lifetime_control
 
@@ -179,10 +189,10 @@ namespace queries {
     MiniQueryFuzzy( const MiniQueryFuzzy& );
 
     // overridables
+    auto  BuildCopy( const Bounds& ) -> mtc::api<MiniQueryBase> override;
+    auto  GetChunks( uint32_t ) -> Abstract& override;
     auto  LastIndex() -> uint32_t override;
     auto  SearchDoc( uint32_t ) -> uint32_t override;
-    auto  GetChunks( uint32_t ) -> Abstract& override;
-    auto  Duplicate( const Bounds& ) -> mtc::api<IQuery> override;
 
     implement_lifetime_control
 
@@ -199,10 +209,10 @@ namespace queries {
     MiniQueryAny( const MiniQueryAny& );
 
     // overridables
+    auto  BuildCopy( const Bounds& ) -> mtc::api<MiniQueryBase> override;
+    auto  GetChunks( uint32_t ) -> Abstract& override;
     auto  LastIndex() -> uint32_t override;
     auto  SearchDoc( uint32_t ) -> uint32_t override;
-    auto  GetChunks( uint32_t ) -> Abstract& override;
-    auto  Duplicate( const Bounds& ) -> mtc::api<IQuery> override;
 
     implement_lifetime_control
 
@@ -224,6 +234,46 @@ namespace queries {
 
   // MiniQueryTerm implementation
 
+  MiniQueryTerm::MiniQueryTerm( const MiniQueryTerm& rt, const Bounds& bounds ):
+    MiniQueryBase( rt, bounds ),
+      entBlock( rt.entBlock->Copy( bounds ) ),
+      datatype( rt.datatype ),
+      bm25Term( rt.bm25Term )
+  {
+  }
+
+  MiniQueryTerm::MiniQueryTerm( mtc::api<IEntities> dsr, mtc::api<IEntities> blk, double idf ):
+    MiniQueryBase( dsr ),
+      entBlock( blk ),
+      datatype( blk->Type() ),
+      bm25Term{ 0, idf, 0, 1 }
+  {
+  }
+
+  auto  MiniQueryTerm::BuildCopy( const Bounds& bounds ) -> mtc::api<MiniQueryBase>
+  {
+    try
+      {  return new MiniQueryTerm( *this, bounds );  }
+    catch ( const uninitialized_exception& )
+      {  return nullptr;  }
+  }
+
+ /*
+  * For changed document id, unpack && return the entries and entry sets for given
+  * format set
+  */
+  auto  MiniQueryTerm::GetChunks( uint32_t tofind ) -> Abstract&
+  {
+    if ( docRefer.uEntity == tofind && abstract.dwMode == Abstract::None )
+      SetAbstract( &bm25Term, 1 + &bm25Term );
+    return abstract;
+  }
+
+  uint32_t  MiniQueryTerm::LastIndex()
+  {
+    return entBlock->Last();
+  }
+
  /*
   * Search next document in the list of entities
   */
@@ -238,24 +288,60 @@ namespace queries {
     return abstract = {}, entityId = (docRefer = entBlock->Find( tofind )).uEntity;
   }
 
- /*
-  * For changed document id, unpack && return the entries and entry sets for given
-  * format set
-  */
-  auto  MiniQueryTerm::GetChunks( uint32_t tofind ) -> Abstract&
-  {
-    if ( docRefer.uEntity == tofind && abstract.dwMode == Abstract::None )
-      SetAbstract( &bm25Term, 1 + &bm25Term );
-    return abstract;
-  }
-
   // MiniMultiTerm implementation
+
+  MiniMultiTerm::MiniMultiTerm( const MiniMultiTerm& multi, const Bounds& bounds ):
+    MiniQueryBase( multi, bounds )
+  {
+    for ( auto& next: multi.blockSet )
+    {
+      auto  blcopy = next.entBlock->Copy( bounds );
+
+      if ( blcopy != nullptr )
+        blockSet.emplace_back( blcopy, next.idfValue );
+    }
+    if ( blockSet.empty() )
+      throw uninitialized_exception( "MiniMultiTerm::blockSet is empty @" __FILE__ LINE_STRING );
+  }
 
   MiniMultiTerm::MiniMultiTerm( mtc::api<IEntities> dsr, std::vector<std::pair<mtc::api<IEntities>, double>>& terms ):
     MiniQueryBase( dsr )
   {
     for ( auto& next: terms )
       blockSet.emplace_back( next.first, next.second );
+  }
+
+  auto  MiniMultiTerm::BuildCopy( const Bounds& bounds ) -> mtc::api<MiniQueryBase>
+  {
+    try
+      {  return new MiniMultiTerm( *this, bounds );  }
+    catch ( const uninitialized_exception& )
+      {  return nullptr;  }
+  }
+
+  auto  MiniMultiTerm::GetChunks( uint32_t getdoc ) -> Abstract&
+  {
+    if ( getdoc == entityId && abstract.dwMode == Abstract::None )
+    {
+      bm25term = { 0, 0.0, 0, 1 };
+
+      for ( auto& next: blockSet )
+        if ( next.docRefer.uEntity == getdoc )
+          bm25term.dblIDF = std::max( bm25term.dblIDF, next.idfValue );
+
+      return SetAbstract( &bm25term, 1 + &bm25term );
+    }
+    return abstract;
+  }
+
+  uint32_t  MiniMultiTerm::LastIndex()
+  {
+    auto  lastId = uint32_t(0);
+
+    for ( auto block: blockSet )
+      lastId = std::max( lastId, block.entBlock->Last() );
+
+    return lastId;
   }
 
   uint32_t  MiniMultiTerm::SearchDoc( uint32_t tofind )
@@ -278,22 +364,26 @@ namespace queries {
     return abstract = {}, entityId = uFound;
   }
 
-  auto  MiniMultiTerm::GetChunks( uint32_t getdoc ) -> Abstract&
-  {
-    if ( getdoc == entityId && abstract.dwMode == Abstract::None )
-    {
-      bm25term = { 0, 0.0, 0, 1 };
-
-      for ( auto& next: blockSet )
-        if ( next.docRefer.uEntity == getdoc )
-          bm25term.dblIDF = std::max( bm25term.dblIDF, next.idfValue );
-
-      return SetAbstract( &bm25term, 1 + &bm25term );
-    }
-    return abstract;
-  }
-
   // MiniQueryArgs implementation
+
+  MiniQueryArgs::MiniQueryArgs( const MiniQueryArgs& source, const Bounds& bounds, bool exceptIfNULL ):
+    MiniQueryBase( source, bounds )
+  {
+    for ( auto& next: source.querySet )
+    {
+      auto  newOne = next;
+
+      if ( (newOne.subQuery = next.subQuery->BuildCopy( bounds )) == nullptr )
+      {
+        if ( exceptIfNULL )
+          throw uninitialized_exception( "empty query @" __FILE__ LINE_STRING );
+      }
+        else
+      querySet.emplace_back( newOne );
+    }
+    if ( querySet.empty() )
+      throw uninitialized_exception( "empty query @" __FILE__ LINE_STRING );
+  }
 
   void  MiniQueryArgs::AddQueryNode( mtc::api<MiniQueryBase> query, double range )
   {
@@ -338,14 +428,27 @@ namespace queries {
 
   // MiniQueryAll implementation
 
+  uint32_t  MiniQueryAll::LastIndex()
+  {
+    auto  uindex = uint32_t(-1);
+
+    for ( auto& next: querySet )
+      uindex = std::min( uindex, next.subQuery->LastIndex() );
+
+    return uindex;
+  }
+
   auto  MiniQueryAll::SearchDoc( uint32_t id ) -> uint32_t
   {
     return StrictSearch( id );
   }
 
-  auto  MiniQueryAll::Duplicate( const Bounds& bounds ) -> mtc::api<IQuery>
+  auto  MiniQueryAll::BuildCopy( const Bounds& bounds ) -> mtc::api<MiniQueryBase>
   {
-    return new MiniQueryAll( *this, bounds );
+    try
+      {  return new MiniQueryAll( *this, bounds, true );  }
+    catch ( const uninitialized_exception& )
+      {  return nullptr;  }
   }
 
   /*
@@ -378,6 +481,43 @@ namespace queries {
   MiniQueryFuzzy::MiniQueryFuzzy( mtc::api<IEntities> docStats, double flQuorum ):
     MiniQueryArgs( docStats ), quorum( flQuorum )
   {
+  }
+
+  auto  MiniQueryFuzzy::BuildCopy( const Bounds& bounds) -> mtc::api<MiniQueryBase>
+  {
+    try
+      {  return new MiniQueryFuzzy( *this, bounds );  }
+    catch ( const uninitialized_exception& )
+      {  return nullptr;  }
+  }
+
+  auto  MiniQueryFuzzy::GetChunks( uint32_t udocid ) -> Abstract&
+  {
+    if ( abstract.dwMode == abstract.None )
+    {
+      auto  idfptr = termList;
+      auto  crange = 0.0;
+
+      for ( auto& next: querySet )
+        if ( next.GetChunks( udocid ).factors.size() != 0 )
+        {
+          while ( next.abstract.factors.pbeg != next.abstract.factors.pend && idfptr != std::end(termList) )
+            crange += (*idfptr++ = *next.abstract.factors.pbeg++).dblIDF;
+        }
+
+      return crange >= quorum ? SetAbstract( termList, idfptr ) : abstract = {};
+    }
+    return abstract;
+  }
+
+  uint32_t  MiniQueryFuzzy::LastIndex()
+  {
+    auto  lastId = uint32_t(0);
+
+    for ( auto& next: querySet )
+      lastId = std::max( lastId, next.subQuery->LastIndex() );
+
+    return lastId;
   }
 
   uint32_t  MiniQueryFuzzy::SearchDoc( uint32_t tofind )
@@ -417,53 +557,14 @@ namespace queries {
     }
   }
 
-  auto  MiniQueryFuzzy::Duplicate( const Bounds& bounds) -> mtc::api<IQuery>
-  {
-    return new MiniQueryFuzzy( *this, bounds );
-  }
-
-  auto  MiniQueryFuzzy::GetChunks( uint32_t udocid ) -> Abstract&
-  {
-    if ( abstract.dwMode == abstract.None )
-    {
-      auto  idfptr = termList;
-      auto  crange = 0.0;
-
-      for ( auto& next: querySet )
-        if ( next.GetChunks( udocid ).factors.size() != 0 )
-        {
-          while ( next.abstract.factors.pbeg != next.abstract.factors.pend && idfptr != std::end(termList) )
-            crange += (*idfptr++ = *next.abstract.factors.pbeg++).dblIDF;
-        }
-
-      return crange >= quorum ? SetAbstract( termList, idfptr ) : abstract = {};
-    }
-    return abstract;
-  }
-
   // MiniQueryAny implementation
 
-  uint32_t  MiniQueryAny::SearchDoc( uint32_t tofind )
+  auto  MiniQueryAny::BuildCopy( const Bounds& bounds ) -> mtc::api<MiniQueryBase>
   {
-    uint32_t  uFound;
-
-    if ( (tofind = std::max( tofind, entityId )) == uint32_t(-1) )
-      return entityId = uint32_t(-1);
-
-    if ( entityId != tofind )
-      abstract = {};
-
-    uFound = uint32_t(-1);
-
-    for ( auto& next: querySet )
-      uFound = std::min( uFound, next.SearchDoc( tofind ) );
-
-    return entityId = uFound;
-  }
-
-  auto  MiniQueryAny::Duplicate( const Bounds& bounds ) -> mtc::api<IQuery>
-  {
-    return new MiniQueryAny( *this, bounds );
+    try
+      {  return new MiniQueryAny( *this, bounds, false );  }
+    catch ( const uninitialized_exception& )
+      {  return nullptr;  }
   }
 
   auto  MiniQueryAny::GetChunks( uint32_t udocid ) -> Abstract&
@@ -482,6 +583,34 @@ namespace queries {
       return SetAbstract( termList, idfout );
     }
     return abstract;
+  }
+
+  uint32_t  MiniQueryAny::LastIndex()
+  {
+    auto  uindex = uint32_t(0);
+
+    for ( auto& next: querySet )
+      uindex = std::max( uindex, next.subQuery->LastIndex() );
+
+    return uindex;
+  }
+
+  uint32_t  MiniQueryAny::SearchDoc( uint32_t tofind )
+  {
+    uint32_t  uFound;
+
+    if ( (tofind = std::max( tofind, entityId )) == uint32_t(-1) )
+      return entityId = uint32_t(-1);
+
+    if ( entityId != tofind )
+      abstract = {};
+
+    uFound = uint32_t(-1);
+
+    for ( auto& next: querySet )
+      uFound = std::min( uFound, next.SearchDoc( tofind ) );
+
+    return entityId = uFound;
   }
 
   // Query creation entry
