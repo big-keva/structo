@@ -23,6 +23,10 @@ class MockLang: public ILemmatizer
       std::initializer_list<uint8_t>{ 1, 2, 3 }.begin() , 3 );
     return 0;
   }
+  int   Wildcards( IWord*, unsigned, const widechar*, size_t ) override
+  {
+    return 0;
+  }
 };
 
 class MockFields: public FieldHandler
