@@ -61,6 +61,7 @@ namespace queries {
       auto    end() const -> const EntrySet*  {  return pend;  }
       bool    empty() const {  return pbeg == pend;  }
       size_t  size() const  {  return pend - pbeg;  }
+      auto    back() const -> const EntrySet&  {  return pend[-1];  }
     };
 
     struct Factors
