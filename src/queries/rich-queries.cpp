@@ -903,12 +903,16 @@ namespace queries {
       auto  outPos = pointBuf.data();
       auto  loaded = size_t(0);
       auto  quo_fl = double(0.0);
+      auto  qUpper = unsigned(0);   // верхний предел для кворумных элементов
 
     // для начала загрузить потенциально дающие кворум подзапросы, чтобы избежать
     // распаковки потенциально ненужных
       for ( ; loaded != querySet.size() && quo_fl < quorum; ++loaded )
         if ( querySet[loaded].GetChunks( udocid, format, limits ).dwMode == abstract.Rich )
+        {
           quo_fl += querySet[loaded].keyRange;
+          qUpper = std::max( qUpper, querySet[loaded].abstract.entries.back().limits.uMax + 100 );
+        }
 
     // list elements and select the best tuples for each possible compact entry;
     // shrink overlapping entries to suppress far and low-weight entries
@@ -969,7 +973,7 @@ namespace queries {
         // check if loaded
           if ( nquery >= loaded )
           {
-            querySet[nquery].GetChunks( udocid, format, { qLower, uUpper + 100 } );
+            querySet[nquery].GetChunks( udocid, format, { qLower, qUpper } );
             loaded = nquery + 1;
           }
 
@@ -998,8 +1002,8 @@ namespace queries {
           en_len += tmRank * tmRank;
         }
 
-        auto  weight = scalar / sqrt(querySet.size() * en_len);
-        bool  useEnt = weight >= 0.3;
+        auto  weight = scalar / pow(querySet.size() * en_len, 0.25);
+        bool  useEnt = weight >= 1e-3;
 
         if ( useEnt && outEnt != entryBuf.data() && outEnt[-1].limits.uMax >= uLower )
         {
