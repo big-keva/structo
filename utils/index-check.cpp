@@ -17,10 +17,6 @@ int   CheckIndex( mtc::api<structo::IContentsIndex> index )
 
     fprintf( stdout, "key '%s': type %u, count %u: ", key.c_str(), keyStats.bkType, keyStats.nCount );
 
-    if ( strcmp( key.c_str(), "Ͻ." ) == 0 )
-    {
-      int i = 0;
-    }
     if ( keyBlock == nullptr )
       return fputs( "index has no corresponding data!\n", stdout ), EFAULT;
 
