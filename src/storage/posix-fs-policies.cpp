@@ -159,6 +159,7 @@ namespace posixFS {
       case contents:    return "contents";
       case linkages:    return "linkages";
       case packages:    return "packages";
+      case revision:    return "revision";
       case bulletin:    return "bulletin";
       default:          throw std::invalid_argument( "invalid Unit id" );
     }

@@ -96,14 +96,14 @@ namespace structo
     virtual auto  Commit() -> mtc::api<ISerialized> = 0;
     virtual void  Remove() = 0;
 
-    virtual auto  NewPatch() -> mtc::api<IPatch> = 0;
+    virtual auto  AddPatch() -> mtc::api<IPatch> = 0;
+    virtual void  SetPatch( IPatch* ) = 0;
   };
 
   struct IStorage::ISerialized::IPatch: Iface
   {
     virtual void  Delete( EntityId ) = 0;
     virtual void  Update( EntityId, const void*, size_t ) = 0;
-    virtual void  Commit() = 0;
   };
 
   struct IStorage::ISourceList: Iface

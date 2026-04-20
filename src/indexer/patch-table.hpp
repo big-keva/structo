@@ -30,6 +30,8 @@ namespace indexer {
     auto  Search( const std::string_view& ) const -> mtc::api<const mtc::IByteBuffer>;
     auto  Search( uint32_t ix ) const -> mtc::api<const mtc::IByteBuffer>
       {  return Search( MakeId( ix ) );  }
+    void  Freeze()
+      {  modOrigin = modifiers.load();  }
 
     void  Commit( mtc::api<IStorage::ISerialized> );
 
@@ -43,6 +45,7 @@ namespace indexer {
 
   protected:
     std::atomic_long                      modifiers = 0;
+    long                                  modOrigin = 0;
     std::vector<HashItem,
       AllocatorCast<Allocator, HashItem>> hashTable;
 
@@ -328,16 +331,16 @@ namespace indexer {
     if ( serial == nullptr )
       throw std::invalid_argument( "empty PatchTable::Commit storage argument" );
 
-    for ( auto modClock = 0L, curClock = modifiers.load(); modClock < modifiers.load(); modClock = curClock )
+    for ( auto curClock = 0L; modOrigin < (curClock = modifiers.load()); modOrigin = curClock )
     {
-      auto  ipatch = decltype(serial->NewPatch()){};
+      auto  ipatch = decltype(serial->AddPatch()){};
 
       for ( auto& next: hashTable )
       {
         auto  ppatch = next.load();   // PatchRec*
 
       // skip if record is empty, is already saved, or is integer index
-        if ( ppatch != nullptr && !IsUint( ppatch->entityKey ) && ppatch->patchTime > modClock )
+        if ( ppatch != nullptr && !IsUint( ppatch->entityKey ) && ppatch->patchTime > modOrigin )
         {
           auto  pvalue = mtc::ptr::clean( ppatch->patchData.load() );    // const mtc::IByteBuffer*
           auto  locked = mtc::api<const mtc::IByteBuffer>();
@@ -351,7 +354,7 @@ namespace indexer {
 
         // ensure patch storage
           if ( ipatch == nullptr )
-            ipatch = serial->NewPatch();
+            ipatch = serial->AddPatch();
 
           if ( locked->GetLen() == size_t(-1) )
           {
@@ -364,9 +367,6 @@ namespace indexer {
           }
         }
       }
-
-      if ( ipatch != nullptr )
-        ipatch->Commit();
     }
   }
 
