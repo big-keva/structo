@@ -93,48 +93,19 @@ namespace fusion {
     uint64_t  offset;
   };
 
-  auto  MergeSimple(
-    mtc::api<mtc::IByteStream>      output,
-    std::vector<EntityReference>&   buffer,
-    const std::vector<MapEntities>& blocks ) -> std::pair<uint32_t, uint64_t>
+  inline
+  auto  SerializeWithData( char* buffer, uint32_t diffi, uint32_t cbent ) -> char*
   {
-    uint64_t  length = 0;
-    uint32_t  uOldId = 0;
-
-    for ( auto& block: blocks )
-    {
-      uint32_t  mapped;
-
-      // list all the references in the block
-      for ( auto entry = block.entityBlock->Find( 0 ); entry.uEntity != uint32_t(-1); entry = block.entityBlock->Find( 1 + entry.uEntity ) )
-      {
-        if ( (mapped = block.mapEntities->at( entry.uEntity )) != uint32_t(-1) )
-        {
-          if ( buffer.size() == buffer.capacity() )
-            buffer.reserve( buffer.capacity() + 0x10000 );
-          buffer.push_back( { mapped, entry.details } );
-        }
-      }
-    }
-
-    // check if any objects in a buffer, resort, serialize and return the length
-    std::sort( buffer.begin(), buffer.end(), []( const EntityReference& a, const EntityReference& b )
-      {  return a.uEntity < b.uEntity; } );
-
-    for ( auto& reference: buffer )
-    {
-      auto  diffId = reference.uEntity - uOldId - 1;
-
-      if ( ::Serialize( output.ptr(), diffId ) == nullptr )
-        throw std::runtime_error( "Failed to serialize entities" );
-
-      length += ::GetBufLen( diffId );
-      uOldId = reference.uEntity;
-    }
-
-    return { uint32_t(buffer.size()), length };
+    return ::Serialize( ::Serialize( buffer, diffi ), cbent );
   }
 
+  inline
+  auto  SerializeZeroData( char* buffer, uint32_t diffi, uint32_t ) -> char*
+  {
+    return ::Serialize( buffer, diffi );
+  }
+
+  template <char* (*SerializeEntity)(char*, uint32_t, uint32_t)>
   auto  MergeChains(
     mtc::api<mtc::IByteStream>      output,
     std::vector<EntityReference>&   buffer,
@@ -171,14 +142,12 @@ namespace fusion {
 
     for ( auto& reference: buffer )
     {
-      auto    nbytes = reference.details.size();
+      auto  nbytes = reference.details.size();
+      auto  diffId = reference.uEntity - uOldId - 1;
 
     // serialize next difference
-      doclen = ::Serialize( ::Serialize( docbuf,
-        reference.uEntity - uOldId - 1 ), nbytes ) - docbuf;
-
-      ::Serialize( ::Serialize( output.ptr(), docbuf, doclen ),
-          reference.details.data(), nbytes );
+      doclen = SerializeEntity( docbuf, diffId, nbytes ) - docbuf;
+        ::Serialize( ::Serialize( output.ptr(), docbuf, doclen ), reference.details.data(), nbytes );
 
       length += nbytes + doclen;
       cbPart += nbytes + doclen;
@@ -342,8 +311,8 @@ namespace fusion {
         refVector.resize( 0 );
 
         mergeStat = blockList.front().entityBlock->Type() == 0 ?
-          MergeSimple( chains, refVector, blockList ) :
-          MergeChains( chains, refVector, blockList );
+          MergeChains<SerializeZeroData>( chains, refVector, blockList ) :
+          MergeChains<SerializeWithData>( chains, refVector, blockList );
 
         if ( mergeStat.second != 0 )
         {
