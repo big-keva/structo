@@ -26,6 +26,7 @@ namespace static_ {
     class EntitiesRich;
     class EntityIterator;
     class LexemeIterator;
+    class PatchApplier;
 
     implement_lifetime_control
 
@@ -174,6 +175,19 @@ namespace static_ {
 
   };
 
+  class ContentsIndex::PatchApplier: public IStorage::ISerialized::IPatch
+  {
+    ContentsIndex&  contents;
+
+    void  Delete( EntityId ) override;
+    void  Update( EntityId, const void*, size_t ) override;
+
+  public:
+    PatchApplier( ContentsIndex& ix ): contents( ix ) {}
+
+    implement_lifetime_stub
+  };
+
   // ContentsIndex implementation
 
   ContentsIndex::ContentsIndex( mtc::api<IStorage::ISerialized> storage ):
@@ -186,6 +200,10 @@ namespace static_ {
     patchTab( std::max( 1000U, entities.GetEntityCount() ), memArena.get_allocator<char>() ),
     shadowed( entities.GetEntityCount(), memArena.get_allocator<char>() )
   {
+    PatchApplier  apatch( *this );
+
+    storage->SetPatch( &apatch );
+    patchTab.Freeze();
   }
 
   auto  ContentsIndex::GetEntity( EntityId id ) const -> mtc::api<const IEntity>
@@ -344,7 +362,7 @@ namespace static_ {
       ptrtop( origin )
   {
     if ( origin + 3 > finish )
-      throw std::logic_error( "invalid block format @" __FILE__ LINE_STRING );
+      throw std::logic_error( "invalid block format @" __FILE__ ":" LINE_STRING );
 
     unsigned  idxlen =
       (unsigned(uint8_t(finish[-3])) << 0x10) |
@@ -358,7 +376,7 @@ namespace static_ {
       auto  old = DocDowel{ 0, 0 };
 
       if ( origin + idxlen + 3 > finish )
-        throw std::logic_error( "invalid block format @" __FILE__ LINE_STRING );
+        throw std::logic_error( "invalid block format @" __FILE__ ":" LINE_STRING );
 
       for ( pindex = new DocIndex(); src < end; )
       {
@@ -528,6 +546,24 @@ namespace static_ {
       }
 
     return nullptr;
+  }
+
+  // ContentsIndex::PatchApplier implementation
+
+  void  ContentsIndex::PatchApplier::Delete( EntityId entid )
+  {
+    auto  entptr = contents.entities.GetEntity( entid );
+
+    if ( entptr != nullptr )
+      contents.patchTab.Delete( entid, entptr->index );
+  }
+
+  void  ContentsIndex::PatchApplier::Update( EntityId entid, const void* mdata, size_t size )
+  {
+    auto  entptr = contents.entities.GetEntity( entid );
+
+    if ( entptr != nullptr )
+      contents.patchTab.Update( entid, entptr->index, { (const char*)mdata, size } );
   }
 
   // contents implementation
