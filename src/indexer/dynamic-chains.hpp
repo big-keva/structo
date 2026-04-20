@@ -72,8 +72,9 @@ namespace dynamic {
 
       enum: size_t
       {
-        cache_size = 32,
-        cache_step = 64
+        blockchain_cache_size = 128,
+        min_cache_granularity = 2,
+        min_records_for_cache = 64
       };
 
       const unsigned        bkType;
@@ -81,7 +82,7 @@ namespace dynamic {
       AtomicHook            pchain;               // collisions
 
       AtomicLink            pfirst = nullptr;     // first in chain
-      AtomicLink*           points[cache_size];   // points cache
+      AtomicLink*           points[blockchain_cache_size];   // points cache
       LastAnchor            ppoint = points - 1;  // invalid value
       std::atomic_uint32_t  ncount = 0;
 
@@ -512,20 +513,19 @@ namespace dynamic {
     if ( pfirst.compare_exchange_strong( pentry = nullptr, newptr ) )
       return (void)++ncount;
 
-  // now pentry has the value != nullptr that was stored in pfirst
-  // on the moment of a call
-  //  if ( pentry == nullptr )
-  //    throw std::logic_error( "algorithm error @" __FILE__ ":" LineId( __LINE__ ) );
-
   // если индекс по цепочке строится прямо сейчас, точкой вставки будет pfirst, иначе
   // найти в индексе по цепочке элемент с идентификатором меньше уставляемого
-    for ( anchor = ppoint.load(); anchor >= points && (pentry = (pstore = *anchor)->load())->entity > entity; )
+    anchor = ppoint.load();
+
+    while ( anchor >= points && (pentry = (pstore = *anchor)->load())->entity > entity )
       --anchor;
 
   // если цикл отмотки влево сработал до конца и anchor стал меньше начала индекса, установить
   // его и pentry на первый элемент списка
     if ( anchor < points )
       pentry = (pstore = &pfirst)->load();
+    else
+      pentry = (pstore = *anchor)->load();
 
   // теперь отмотать вправо до первого элемента, чей идентификатор будет больше вставляемого
     while ( pentry != nullptr && pentry->entity < entity )
@@ -539,11 +539,11 @@ namespace dynamic {
 
     // если найденный элемент больше добавляемого и не изменился, заместить его на новый
       if ( (pentry == nullptr || pentry->entity > entity) && pstore->compare_exchange_strong( pentry, newptr ) )
-        return (++ncount % cache_step) == 0 ? Markup() : (void)NULL;
+        return (++ncount % min_records_for_cache) == 0 ? Markup() : (void)NULL;
 
     // если изменился, проверить, не стал ли он меньше вставляемого и не надо ли сделать
     // шаг дальше по списку
-      if ( pentry->entity < entity )
+      if ( pentry != nullptr && pentry->entity < entity )
         pentry = (pstore = &pentry->p_next)->load();
     }
   }
@@ -551,22 +551,27 @@ namespace dynamic {
   template <class Allocator>
   void  BlockChains<Allocator>::ChainHook::Markup()
   {
-    auto  n_gran = ncount.load() / cache_size;
     auto  pstore = &pfirst;
     auto  pentry = pstore->load();
-    auto  pcache = std::max( ppoint.load(), points - 1 );
+    auto  pcache = ppoint.load();
 
     // ensure only one cache builder
-    if ( ppoint.compare_exchange_strong( pcache, points - 2 ) ) pcache = points;
-      else return;
+    if ( pcache != points - 2 && ppoint.compare_exchange_strong( pcache, points - 2 ) )
+    {
+      auto  n_gran = std::max( ncount.load() / blockchain_cache_size, size_t(min_cache_granularity) );
 
-    for ( size_t nindex = 0; pentry != nullptr; pentry = (pstore = &pentry->p_next)->load() )
-      if ( nindex++ == n_gran )
-      {
-        *pcache++ = pstore;
-        nindex = 0;
-      }
-    ppoint = pcache - 1;
+      pcache = points;
+
+      for ( size_t nindex = 0; pentry != nullptr; pentry = (pstore = &pentry->p_next)->load() )
+        if ( nindex++ == n_gran )
+        {
+          pcache[nindex = 0] = pstore;
+
+          if ( ++pcache == std::end(points) )
+            break;
+        }
+      ppoint = pcache - 1;
+    }
   }
 
   template <class Allocator>
