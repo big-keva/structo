@@ -8,7 +8,7 @@ namespace dynamic {
 
   struct Settings
   {
-    uint32_t  maxEntities = 2000;                 /* */
+    uint32_t  maxEntities = 40000;                /* */
     uint32_t  maxAllocate = 256 * 1024 * 1024;    /* 256 meg */
 
   public:
