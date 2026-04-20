@@ -13,7 +13,8 @@ namespace posixFS {
     contents      = 0x0002,
     linkages      = 0x0004,
     packages      = 0x0008,
-    bulletin      = 0x0010
+    revision      = 0x0010,
+    bulletin      = 0x0020
   };
 
   enum Mode: unsigned
