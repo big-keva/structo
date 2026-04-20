@@ -76,7 +76,7 @@ namespace posixFS {
     mtc::api<mtc::IByteStream>      entities;
     mtc::api<mtc::IByteStream>      contents;
     mtc::api<mtc::IByteStream>      linkages;
-    mtc::api<IStorage::IBundleRepo>  packages;
+    mtc::api<IStorage::IBundleRepo> packages;
 
     mtc::zmap                       idxStats;
 
