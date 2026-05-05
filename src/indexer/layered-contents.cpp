@@ -263,6 +263,7 @@ namespace layered {
   auto  ContentsIndex::SetExtras( EntityId id, const std::string_view& extras ) -> mtc::api<const IEntity>
   {
     auto  shlock = mtc::make_shared_lock( ixlock );
+
     return setExtras( id, extras );
   }
 
@@ -291,6 +292,7 @@ namespace layered {
   auto  ContentsIndex::GetMaxIndex() const -> uint32_t
   {
     auto  shlock = mtc::make_shared_lock( ixlock );
+
     return getMaxIndex();
   }
 
