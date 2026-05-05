@@ -57,8 +57,8 @@ namespace dynamic {
 
     mtc::api<IStorage::IIndexStore> pStorage;
 
-    EntTable                        entities;
-    Contents                        contents;
+    EntTable&                       entities;
+    Contents&                       contents;
     Bitmap<Allocator>               shadowed;
 
   };
@@ -173,8 +173,8 @@ namespace dynamic {
   ContentsIndex::ContentsIndex( uint32_t maxEntities, uint32_t maxAllocate, mtc::api<IStorage::IIndexStore> storageSink  ):
     memLimit( maxAllocate ),
     pStorage( storageSink ),
-    entities( maxEntities, this, pStorage != nullptr ? pStorage->Packages() : nullptr, memArena.get_allocator<char>() ),
-    contents( memArena.get_allocator<char>() ),
+    entities( *memArena.Create<EntTable>( maxEntities, this, pStorage != nullptr ? pStorage->Packages() : nullptr ) ),
+    contents( *memArena.Create<Contents>() ),
     shadowed( maxEntities, memArena.get_allocator<char>() )
   {
   }
