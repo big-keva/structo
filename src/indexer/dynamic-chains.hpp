@@ -38,7 +38,7 @@ namespace dynamic {
 
     enum: size_t
     {
-      hash_table_size = 40013
+      hash_table_size = 65521
     };
 
   /*
@@ -70,39 +70,39 @@ namespace dynamic {
     {
       using LastAnchor = std::atomic<AtomicLink**>;
 
-      enum: size_t
-      {
-        blockchain_cache_size = 128,
-        min_cache_granularity = 2,
-        min_records_for_cache = 64
-      };
-
+      const size_t          nhCode;
       const unsigned        bkType;
+      const size_t          cchkey;               // key length
+
       LinkAllocator         malloc;
-      AtomicHook            pchain;               // collisions
+
+      ChainHook*            pchain;               // collisions
 
       AtomicLink            pfirst = nullptr;     // first in chain
-      AtomicLink*           points[blockchain_cache_size];   // points cache
-      LastAnchor            ppoint = points - 1;  // invalid value
-      std::atomic_uint32_t  ncount = 0;
 
-      size_t                cchkey;               // key length
+      AtomicLink*           points[32];           // points cache
+
+      alignas(64)
+      std::atomic_uint32_t  pindex = 0;
+      alignas(64)
+      std::atomic_uint32_t  ncount = 0;
 
     public:
       auto  data() const -> const char* {  return (const char*)(this + 1);  }
       auto  data() -> char* {  return (char*)(this + 1);  }
 
     public:
-      ChainHook( const std::string_view& key, unsigned blockType, ChainHook*, Allocator );
+      ChainHook( const std::string_view& key, size_t hashCode, unsigned blockType, ChainHook*, Allocator );
      ~ChainHook();
 
     public:
       bool  operator == ( const std::string_view& s ) const
         {  return cchkey == s.size() && memcmp( data(), s.data(), s.size() ) == 0;  }
+      bool  operator != ( const std::string_view& s ) const
+        {  return !(*this == s);  }
 
     public:
       void  Insert( uint32_t entity, const std::string_view& block );
-      void  Markup();
      /*
       * bool  Verify() const;
       *
@@ -168,17 +168,17 @@ namespace dynamic {
       }
     };
 
-    std::vector<AtomicHook, HookAllocator>      hashTable;
-    AllocatorCast<Allocator, ChainHook>         hookAlloc;
+    std::vector<AtomicHook, HookAllocator>    hashTable;
+    AllocatorCast<Allocator, ChainHook>       hookAlloc;
 
     mtc::radix::tree<RadixLink,
-      AllocatorCast<Allocator, RadixLink>>      radixTree;    // parallel radix tree
-    mutable std::shared_mutex                   radixLock;    // locker to access
+      AllocatorCast<Allocator, RadixLink>>    radixTree;    // parallel radix tree
+    mutable std::shared_mutex                 radixLock;    // locker to access
 
-    RingBuffer<ChainHook*, ring_buffer_size>    keysQueue;    // queue for keys indexing
-    std::condition_variable_any                 keySyncro;    // syncro for shadow indexing keys
-    std::thread                                 keyThread;    // shadow keys indexer
-    volatile bool                               runThread = false;
+    RingBuffer<ChainHook*, ring_buffer_size>  keysQueue;    // queue for keys indexing
+    std::condition_variable_any               keySyncro;    // syncro for shadow indexing keys
+    std::thread                               keyThread;    // shadow keys indexer
+    volatile bool                             runThread = false;
 
   };
 
@@ -229,73 +229,89 @@ namespace dynamic {
       }
   }
 
+  template <class T>
+  auto  get_upper_tag( T* p ) -> uint16_t {  return static_cast<uint16_t>(uintptr_t(p) >> 48);  }
+  template <class T>
+  auto  get_lower_ptr( T* p ) -> T*       {  return reinterpret_cast<T*>( uintptr_t(p) & ~0xffff000000000000 );  }
+
   template <class Allocator>
   void  BlockChains<Allocator>::Insert( const std::string_view& key, uint32_t entity, const std::string_view& block, unsigned bkType )
   {
-    auto  hindex = std::hash<std::string_view>()( key ) % hashTable.size();
-    auto  hentry = &hashTable[hindex];
-    auto  hvalue = mtc::ptr::clean( hentry->load() );
+    auto  nhcode = std::hash<std::string_view>()( key );
+    auto  hindex = nhcode % hashTable.size();
+    auto& hentry = hashTable[hindex];
+    auto  hupTag = static_cast<uint16_t>( nhcode >> 48 );
+    auto  hvalue = mtc::ptr::clean( hentry.load( std::memory_order_acquire ) );
 
-  // check block type; set the type value if is not set yet
+    // check block type; set the type value if is not set yet
     if ( bkType == unsigned(-1) )
       bkType = block.size() != 0 ? 0x10 : 0;
 
-  // first try find existing block in the hash chain
-    for ( ; hvalue != nullptr; hvalue = hvalue->pchain.load() )
-      if ( *hvalue == key )
+    // lookup the collision chain for the element with searched key
+    for ( auto sysptr = get_lower_ptr( hvalue ); hvalue != nullptr; sysptr = get_lower_ptr( hvalue = sysptr->pchain ) )
+      if ( hupTag == get_upper_tag( hvalue ) && sysptr->nhCode == nhcode && *sysptr == key )
       {
-        if ( hvalue->bkType != bkType )
+        if ( sysptr->bkType != bkType )
           throw std::invalid_argument( "Block type do not match the previously defined type" );
-        return hvalue->Insert( entity, block );
+
+        return sysptr->Insert( entity, block );
       }
 
-  // now try lock the hash table entry to create record
-    for ( hvalue = mtc::ptr::clean( hentry->load() ); !hentry->compare_exchange_strong( hvalue, mtc::ptr::dirty( hvalue ) ); )
-      hvalue = mtc::ptr::clean( hvalue );
+    // OK, try lock current entry with 'dirty' bit
+    while ( !hentry.compare_exchange_strong( hvalue, mtc::ptr::dirty( hvalue ),
+      std::memory_order_acq_rel,
+      std::memory_order_acquire ) ) hvalue = mtc::ptr::clean( hvalue );
 
-  // check if locked hvalue list still contains no needed key; unlock and finish
-  // if key is now found
-    for ( ; hvalue != nullptr; hvalue = hvalue->pchain.load() )
-      if ( *hvalue == key )
+    // lookup the list got again searching for existing key
+    for ( auto sysptr = get_lower_ptr( hvalue ); hvalue != nullptr; sysptr = get_lower_ptr( hvalue = sysptr->pchain ) )
+      if ( hupTag == get_upper_tag( hvalue ) && sysptr->nhCode == nhcode && *sysptr == key )
       {
-        hentry->store( mtc::ptr::clean( hentry->load() ) );
+        hentry.store( mtc::ptr::clean( hentry.load(
+          std::memory_order_acquire ) ),
+          std::memory_order_release );
 
-        if ( hvalue->bkType != bkType )
+        if ( sysptr->bkType != bkType )
           throw std::invalid_argument( "Block type do not match the previously defined type" );
-        return hvalue->Insert( entity, block );
+
+        return sysptr->Insert( entity, block );
       }
 
-  // list contains no needed entry; allocate new ChainHook for new key;
-  // for possible exceptions, unlock the entry and continue tracing
+    // list contains no needed entry; allocate new ChainHook for new key;
+    // for possible exceptions, unlock the entry and continue tracing
     try
     {
       new( hvalue = hookAlloc.allocate( (sizeof(ChainHook) * 2 + key.size() - 1) / sizeof(ChainHook) ) )
-        ChainHook( key, bkType, mtc::ptr::clean( hentry->load() ), hookAlloc );
+        ChainHook( key, nhcode, bkType, mtc::ptr::clean( hentry.load() ), hookAlloc );
 
-      hentry->store( hvalue );
+      hentry.store( (ChainHook*)(uintptr_t(hvalue) | (uint64_t(hupTag) << 48)),
+        std::memory_order_release );
 
       keysQueue.Put( hvalue );
       keySyncro.notify_one();
     }
     catch ( ... )
     {
-      hentry->store( mtc::ptr::clean( hentry->load() ) );
+      hentry.store( mtc::ptr::clean( hentry.load(
+        std::memory_order_acquire) ),
+        std::memory_order_release );
       throw;
     }
-
-    return hvalue->Insert( entity, block );
+    return get_lower_ptr( hvalue )->Insert( entity, block );
   }
 
   template <class Allocator>
   auto  BlockChains<Allocator>::Lookup( const std::string_view& key ) const -> const ChainHook*
   {
-    auto  hindex = std::hash<std::string_view>{}( { key.data(), key.size() } ) % hashTable.size();
-    auto  hvalue = mtc::ptr::clean( hashTable[hindex].load() );
+    auto  nhcode = std::hash<std::string_view>()( key );
+    auto  hindex = nhcode % hashTable.size();
+    auto& hentry = hashTable[hindex];
+    auto  hupTag = static_cast<uint16_t>( nhcode % 0xffff );
+    auto  hvalue = mtc::ptr::clean( hentry.load( std::memory_order_acquire ) );
 
   // first try find existing block in the hash chain
-    for ( ; hvalue != nullptr; hvalue = hvalue->pchain.load() )
-      if ( *hvalue == key )
-        return hvalue;
+    for ( auto sysptr = get_lower_ptr( hvalue ); hvalue != nullptr; sysptr = get_lower_ptr( hvalue = sysptr->pchain ) )
+      if ( hupTag == get_upper_tag( hvalue ) && sysptr->nhCode == nhcode && *sysptr == key )
+        return sysptr;
 
     return nullptr;
   }
@@ -480,12 +496,15 @@ namespace dynamic {
   }
 
   template <class Allocator>
-  BlockChains<Allocator>::ChainHook::ChainHook( const std::string_view& key, unsigned b, ChainHook* p, Allocator m ):
+  BlockChains<Allocator>::ChainHook::ChainHook( const std::string_view& key, size_t hashCode, unsigned b, ChainHook* p, Allocator m ):
+    nhCode( hashCode ),
     bkType( b ),
+    cchkey( key.size() ),
     malloc( m ),
     pchain( p )
   {
-    memcpy( data(), key.data(), cchkey = key.size() );
+    memset( points, 0, sizeof(points) );
+    memcpy( data(), key.data(), cchkey );
   }
 
   template <class Allocator>
@@ -504,32 +523,28 @@ namespace dynamic {
   {
     auto          newptr = new( malloc.allocate( (sizeof(ChainLink) * 2 + block.size() - 1) / sizeof(ChainLink) ) )
       ChainLink( entity, block );
-    AtomicLink*   pstore;
+    AtomicLink*   pstore = &pfirst;
     ChainLink*    pentry;
-    AtomicLink**  anchor;
 
   // check if no elements available and try write first element;
   // if succeeded, increment element count and return
     if ( pfirst.compare_exchange_strong( pentry = nullptr, newptr ) )
-      return (void)++ncount;
+      return void(ncount.fetch_add( 1, std::memory_order_relaxed ));
 
-  // если индекс по цепочке строится прямо сейчас, точкой вставки будет pfirst, иначе
-  // найти в индексе по цепочке элемент с идентификатором меньше уставляемого
-    anchor = ppoint.load();
+  // если в цепочке мало элементов, перебираем от начала списка; если становится больше 16,
+  // начинаем строить массив "последних добавленных" и смотреть по нему
+    if ( ncount.load( std::memory_order_relaxed ) >= 16 )
+    {
+      auto  stopat = pindex.load( std::memory_order_relaxed );
 
-    while ( anchor >= points && (pentry = (pstore = *anchor)->load())->entity > entity )
-      --anchor;
-
-  // если цикл отмотки влево сработал до конца и anchor стал меньше начала индекса, установить
-  // его и pentry на первый элемент списка
-    if ( anchor < points )
-      pentry = (pstore = &pfirst)->load();
-    else
-      pentry = (pstore = *anchor)->load();
+      for ( auto  uindex = stopat - 1; (uindex % 32) != (stopat % 32) && points[uindex % 32] != nullptr; --uindex )
+        if ( points[uindex % 32]->load( std::memory_order_acquire )->entity < entity )
+          {  (pstore = points[uindex % 32])->load();  break;  }
+    }
 
   // теперь отмотать вправо до первого элемента, чей идентификатор будет больше вставляемого
-    while ( pentry != nullptr && pentry->entity < entity )
-      pentry = (pstore = &pentry->p_next)->load();
+    for ( pentry = pstore->load(); pentry != nullptr && pentry->entity < entity; )
+      pentry = (pstore = &pentry->p_next)->load( std::memory_order_acquire );
 
   // pstore указывает на атомарную переменную с указателем, на место которого будет вставка,
   // а pentry хранит его значение
@@ -539,38 +554,16 @@ namespace dynamic {
 
     // если найденный элемент больше добавляемого и не изменился, заместить его на новый
       if ( (pentry == nullptr || pentry->entity > entity) && pstore->compare_exchange_strong( pentry, newptr ) )
-        return (++ncount % min_records_for_cache) == 0 ? Markup() : (void)NULL;
+      {
+        auto  curPoint = pindex.fetch_add( 1, std::memory_order_relaxed );
+
+        return points[curPoint % 32] = pstore, void(ncount.fetch_add( 1, std::memory_order_relaxed ));
+      }
 
     // если изменился, проверить, не стал ли он меньше вставляемого и не надо ли сделать
     // шаг дальше по списку
       if ( pentry != nullptr && pentry->entity < entity )
-        pentry = (pstore = &pentry->p_next)->load();
-    }
-  }
-
-  template <class Allocator>
-  void  BlockChains<Allocator>::ChainHook::Markup()
-  {
-    auto  pstore = &pfirst;
-    auto  pentry = pstore->load();
-    auto  pcache = ppoint.load();
-
-    // ensure only one cache builder
-    if ( pcache != points - 2 && ppoint.compare_exchange_strong( pcache, points - 2 ) )
-    {
-      auto  n_gran = std::max( ncount.load() / blockchain_cache_size, size_t(min_cache_granularity) );
-
-      pcache = points;
-
-      for ( size_t nindex = 0; pentry != nullptr; pentry = (pstore = &pentry->p_next)->load() )
-        if ( nindex++ == n_gran )
-        {
-          pcache[nindex = 0] = pstore;
-
-          if ( ++pcache == std::end(points) )
-            break;
-        }
-      ppoint = pcache - 1;
+        pentry = (pstore = &pentry->p_next)->load( std::memory_order_acquire );
     }
   }
 
