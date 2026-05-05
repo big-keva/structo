@@ -33,8 +33,17 @@ namespace imaging {
 
   class WordsEncoder final
   {
-    mtc::arbitrarymap<unsigned> references;
-    TextBuffer<char>            textBuffer;
+    struct StrRef
+    {
+      StrRef*          pnext;
+      const TextToken* token;
+      unsigned         where;
+    };
+
+    std::vector<StrRef*>  refHashMap;
+    std::vector<StrRef>   strRefBuff;
+    StrRef*               strRefFill;
+    TextBuffer<char>      textBuffer;
 
   public:
     enum: unsigned
@@ -46,15 +55,32 @@ namespace imaging {
       of_bitmask = 0x18
     };
 
+    WordsEncoder( unsigned length ):
+      refHashMap(
+        length < 2003 ? 3001 :
+        length < 8009 ? 12007 :
+        length < 16001 ? 20011 :
+        length < 28001 ? 32003 :
+        length < 55001 ? 60013 : 90031 ),
+      strRefBuff( length ),
+      strRefFill( strRefBuff.data() )
+    {
+    }
+
     template <class O>
     auto  EncodeWord( O* o, const TextToken& t, unsigned p ) -> O*
     {
-      auto  puprev = references.Search( t.pwsstr, t.length * sizeof(widechar) );
+      auto  dwhash = std::hash<std::basic_string_view<widechar>>{}( t.GetWideStr() );
+      auto  refPos = dwhash % refHashMap.size();
+      auto  ptrRef = refHashMap[refPos];
 
-      if ( puprev != nullptr )
+      while ( ptrRef != nullptr && ptrRef->token->GetWideStr() != t.GetWideStr() )
+        ptrRef = ptrRef->pnext;
+
+      if ( ptrRef != nullptr )
       {
-        auto  asOffs = AsOffs( t, *puprev );
-        auto  asDiff = AsDiff( t, p - *puprev );
+        auto  asOffs = AsOffs( t, ptrRef->where );
+        auto  asDiff = AsDiff( t, p - ptrRef->where );
         auto  ccOffs = ::GetBufLen( asOffs );
         auto  ccDiff = ::GetBufLen( asDiff );
 
@@ -62,7 +88,7 @@ namespace imaging {
         if ( ccOffs < ccDiff )
           return ::Serialize( o, asOffs );
 
-        return *puprev = p, ::Serialize( o, asDiff );
+        return ptrRef->where = p, ::Serialize( o, asDiff );
       }
 
       if ( Is1251( t ) )
@@ -80,7 +106,8 @@ namespace imaging {
 
         o = ::Serialize( ::Serialize( o, AsUtf8( t, cchenc ) ), encode, cchenc );
       }
-      references.Insert( t.pwsstr, t.length * sizeof(widechar), p );
+
+      refHashMap[refPos] = new( strRefFill++ ) StrRef{ refHashMap[refPos], &t, p };
       return o;
     }
 
@@ -105,7 +132,7 @@ namespace imaging {
   template <class O>
   void  PackTo( O* o, const mtc::span<const TextToken>& words )
   {
-    WordsEncoder      wcoder;
+    WordsEncoder  wcoder( words.size() );
 
     ::Serialize( o, words.size() );
 
