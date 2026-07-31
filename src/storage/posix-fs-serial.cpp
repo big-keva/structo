@@ -374,7 +374,9 @@ namespace posixFS {
 
   auto  BlocksRepo::Get( int64_t off, uint64_t len ) const -> mtc::api<const mtc::IByteBuffer>
   {
-    return fileStream->MemMap( off, len ).ptr();
+    return len <= 1024 * 1024 ?
+      fileStream->PGet  ( off, len ).ptr() :
+      fileStream->MemMap( off, len ).ptr();
   }
 
   auto  OpenSerial( const StoragePolicies& policies ) -> mtc::api<IStorage::ISerialized>

@@ -56,8 +56,6 @@ namespace posixFS {
     auto  exlock = mtc::make_unique_lock( lock );
     auto  putpos = file->Size();
 
-      file->Seek( putpos );
-
     ::Serialize(
     ::Serialize( file.ptr(), cb ), pv, cb );
 
