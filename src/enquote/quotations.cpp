@@ -330,13 +330,21 @@ namespace enquote {
         else
       if ( rfword.IsFirstOne() && !thestr.empty() )
       {
-        output->AddBlock( thestr );
+        output->AddString( thestr );
         thestr.clear();
       }
 
       if ( marked )
         thestr += codepages::mbcstowide( codepages::codepage_utf8, mtc::strprintf( common->tagBeg.c_str(), marked->termID ) );
-      thestr += rfword.GetWideStr();
+
+      if ( rfword.IsRational() )
+      {
+        if ( !thestr.empty() )
+          output->AddString( thestr );
+        output->AddNumber( rfword.dvalue );
+          thestr.clear();
+      } else thestr += rfword.GetWideStr();
+
       if ( marked )
         thestr += codepages::mbcstowide( codepages::codepage_utf8, mtc::strprintf( common->tagEnd.c_str(), marked->termID ) );
     }
@@ -345,7 +353,7 @@ namespace enquote {
       thestr += widechar( 0x2026 );
 
     if ( !thestr.empty() )
-      output->AddBlock( thestr );
+      output->AddString( thestr );
   }
 
   auto  QuoteMachine::quoter_function::loadField( const std::string_view& tag ) const -> const FieldOptions*
@@ -405,19 +413,27 @@ namespace enquote {
           else
         if ( next.IsFirstOne() && !thestr.empty() )
         {
-          output->AddBlock( thestr );
+          output->AddString( thestr );
           thestr.clear();
         }
 
         if ( mark != nullptr )
           thestr += codepages::mbcstowide( codepages::codepage_utf8, mtc::strprintf( common->tagBeg.c_str(), mark->termID ) );
-        thestr += next.GetWideStr();
+
+        if ( next.IsRational() )
+        {
+          if ( !thestr.empty() )
+            output->AddString( thestr );
+          output->AddNumber( next.dvalue );
+            thestr.clear();
+        } else thestr += next.GetWideStr();
+
         if ( mark != nullptr )
           thestr += codepages::mbcstowide( codepages::codepage_utf8, mtc::strprintf( common->tagEnd.c_str(), mark->termID ) );
       }
 
       if ( !thestr.empty() )
-        output->AddBlock( thestr );
+        output->AddString( thestr );
 
       if ( bounds.uLower <= bounds.uUpper )
       {
