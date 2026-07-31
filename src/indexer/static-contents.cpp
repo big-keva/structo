@@ -86,7 +86,11 @@ namespace static_ {
     };
 
   public:
-    EntitiesBase( const mtc::api<const mtc::IByteBuffer>&, uint32_t, uint32_t, const ContentsIndex* );
+    EntitiesBase(
+      mtc::api<const mtc::IByteBuffer>  coords,
+      mtc::api<const mtc::IByteBuffer>  dowels,
+      uint32_t                          bktype,
+      uint32_t                          ucount, const ContentsIndex* );
     EntitiesBase( const EntitiesBase&, const Bounds& );
 
   // overridables
@@ -281,19 +285,21 @@ namespace static_ {
       uint32_t  nEntities;
       uint64_t  blockOffs;
       uint64_t  blockSize;
+      uint32_t  blockNavi;
 
-      if ( ::FetchFrom( ::FetchFrom( ::FetchFrom( ::FetchFrom( pfound,
+      if ( ::FetchFrom( ::FetchFrom( ::FetchFrom( ::FetchFrom( ::FetchFrom( pfound,
         blockType ),
         nEntities ),
         blockOffs ),
-        blockSize ) != nullptr )
+        blockSize ),
+        blockNavi ) != nullptr )
       {
-        auto  pblock = mtc::api<const IByteBuffer>( blockBox->Get( blockOffs, blockSize ).ptr() );
+        auto  pblock = blockBox->Get( blockOffs, blockSize );
+        auto  dowels = blockNavi != 0 ? blockBox->Get( blockOffs + blockSize, blockNavi ) : nullptr;
 
-        if ( blockType == 0 )
-          return new EntitiesLite( pblock, blockType, nEntities, this );
-        else
-          return new EntitiesRich( pblock, blockType, nEntities, this );
+        return blockType == 0 ?
+          mtc::api<IEntities>( new EntitiesLite( pblock, dowels, blockType, nEntities, this ) ) :
+          mtc::api<IEntities>( new EntitiesRich( pblock, dowels, blockType, nEntities, this ) );
       }
     }
     return nullptr;
@@ -348,42 +354,32 @@ namespace static_ {
   // ContentsIndex::EntitiesBase implementation
 
   ContentsIndex::EntitiesBase::EntitiesBase(
-    const mtc::api<const mtc::IByteBuffer>& src,
-    uint32_t                                btp,
-    uint32_t                                cnt,
-    const ContentsIndex*                    own ):
-      bkType( btp ),
+    mtc::api<const mtc::IByteBuffer>  src,
+    mtc::api<const mtc::IByteBuffer>  nav,
+    uint32_t                          typ,
+    uint32_t                          cnt,
+    const ContentsIndex*              own ):
+      bkType( typ ),
       ncount( cnt ),
       limits{ 1, uint32_t(-1) },
       parent( own ),
       iblock( src ),
       origin( src->GetPtr() ),
-      finish( origin + src->GetLen() ),
+      finish( src->GetLen() + origin ),
       ptrtop( origin )
   {
-    if ( origin + 3 > finish )
-      throw std::logic_error( "invalid block format @" __FILE__ ":" LINE_STRING );
-
-    unsigned  idxlen =
-      (unsigned(uint8_t(finish[-3])) << 0x10) |
-      (unsigned(uint8_t(finish[-2])) << 0x08) |
-      (unsigned(uint8_t(finish[-1])) << 0x00);
-
-    if ( idxlen != 0 )
+    if ( nav != nullptr )
     {
-      auto  src = finish - idxlen - 3;
-      auto  end = finish - 3;
+      auto  beg = nav->GetPtr();
+      auto  end = nav->GetLen() + beg;
       auto  old = DocDowel{ 0, 0 };
 
-      if ( origin + idxlen + 3 > finish )
-        throw std::logic_error( "invalid block format @" __FILE__ ":" LINE_STRING );
-
-      for ( pindex = new DocIndex(); src < end; )
+      for ( pindex = new DocIndex(); beg < end; )
       {
         uint32_t  addDoc;
         uint64_t  addPos;
 
-        src = ::FetchFrom( ::FetchFrom( src, addDoc ), addPos );
+        beg = ::FetchFrom( ::FetchFrom( beg, addDoc ), addPos );
           old.lastId += addDoc;
           old.offset += addPos;
         pindex->emplace_back( old );
@@ -391,7 +387,6 @@ namespace static_ {
       dowBeg = pindex->data();
       dowEnd = pindex->data() + pindex->size();
     }
-    finish -= (idxlen + 3);
   }
 
   ContentsIndex::EntitiesBase::EntitiesBase( const EntitiesBase& source, const Bounds& bounds ):
@@ -459,6 +454,8 @@ namespace static_ {
       if ( (curref.uEntity += udelta + 1) >= limits.uUpper )
         break;
 
+      assert( ptrtop <= finish );
+
       if ( curref.uEntity >= tofind && !parent->shadowed.Get( curref.uEntity ) )
         return curref;
     }
@@ -495,7 +492,7 @@ namespace static_ {
       unsigned  udelta;
       unsigned  ublock;
 
-      if ( (ptrtop = ::FetchFrom( ::FetchFrom( ptrtop, udelta ), ublock )) == nullptr )
+      if ( (ptrtop = ::FetchFrom( ::FetchFrom( ptrtop, udelta ), ublock )) > finish )
         break;
 
       if ( (curref.uEntity += udelta + 1) >= limits.uUpper )

@@ -97,8 +97,6 @@ namespace dynamic {
    ~EntityTable();
 
     auto  GetMaxEntities() const -> uint32_t  {  return uint32_t(entStore.size());  }
-    auto  GetHashTableSize() const -> size_t  {  return entTable.size();  }
-
     auto  GetEntityCount() const -> uint32_t  {  return uint32_t(ptrStore.load() - (Entity*)entStore.data() - 1);  }
 
   public:
