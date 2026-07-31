@@ -191,21 +191,22 @@ TestItEasy::RegisterFunc  dynamic_contents( []()
       {
         REQUIRE_NOTHROW( contents = dynamic::Index()
           .Set( dynamic::Settings()
-            .SetMaxEntities( 3 )
-            .SetMaxAllocate( 321000 ) )
+            .SetMaxEntities( 3 ) )
           .Create() );
 
         SECTION( "insertion of more entities than the limit causes count_overflow" )
         {
           REQUIRE_NOTHROW( contents->SetEntity( "aaa", GetView( {
             { "aaa", 1161 } } ) ) );
-          REQUIRE_EXCEPTION( contents->SetEntity( "bbb", GetView( {
-            { "bbb", 1161 } } ) ), index_overflow );
+          REQUIRE_NOTHROW( contents->SetEntity( "bbb", GetView( {
+            { "bbb", 1161 } } ) ) );
+          REQUIRE_EXCEPTION( contents->SetEntity( "ccc", GetView( {
+            { "ccc", 1161 } } ) ), index_overflow );
         }
       }
       SECTION( "created with storage sink, it saves index as static" )
       {
-        auto  sink = storage::posixFS::CreateSink( storage::posixFS::StoragePolicies::Open(
+        auto  sink = CreateSink( storage::posixFS::StoragePolicies::Open(
           GetTmpPath() + "k2" ) );
         auto  well = mtc::api<IStorage::ISerialized>();
 

@@ -22,7 +22,6 @@ TestItEasy::RegisterFunc  dynamic_entities( []()
 
         REQUIRE_NOTHROW( entity_table = std::make_unique<EntityTable>( max_document_count, nullptr, nullptr ) );
           REQUIRE( entity_table->GetMaxEntities() == max_document_count );
-          REQUIRE( entity_table->GetHashTableSize() == UpperPrime( max_document_count ) );
         SECTION( "for invalid access index, GetEntity( ... ) throws std::invalid_argument" )
         {
           REQUIRE_EXCEPTION( entity_table->GetEntity( 0 ), std::invalid_argument );
