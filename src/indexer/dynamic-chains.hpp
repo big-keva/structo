@@ -11,10 +11,6 @@
 # include <thread>
 # include <atomic>
 
-# if defined( VERIFY_KEY_COUNT )
-#   include <cassert>
-# endif
-
 namespace structo {
 namespace indexer {
 namespace dynamic {
@@ -155,16 +151,17 @@ namespace dynamic {
 
       size_t  GetBufLen() const
       {
-        return ::GetBufLen( blocksChain->bkType )
-             + ::GetBufLen( blocksChain->ncount.load() )
-             + ::GetBufLen( blockOffset )
-             + ::GetBufLen( blockLength );
+        return ::GetBufLen( blocksChain->bkType ) + ::GetBufLen( blocksChain->ncount.load() )
+           + ::GetBufLen( blockOffset )
+           + ::GetBufLen( blockLength ) + ::GetBufLen( 0 );
       }
       template <class O>
       O*    Serialize( O* o ) const
       {
-        return ::Serialize( ::Serialize( ::Serialize( ::Serialize( o,
-          blocksChain->bkType ), blocksChain->ncount.load() ), blockOffset ), blockLength );
+        return
+          ::Serialize( ::Serialize( ::Serialize( ::Serialize( ::Serialize( o, blocksChain->bkType ), blocksChain->ncount.load() ),
+            blockOffset ),
+            blockLength ), 0 );
       }
     };
 
@@ -204,6 +201,7 @@ namespace dynamic {
   };
 
 // KeyBlockChains template implementation
+// KeyBlockChains template implementation
 
   template <class Allocator>
   BlockChains<Allocator>::BlockChains( Allocator alloc ):
@@ -223,16 +221,11 @@ namespace dynamic {
     for ( auto& next: hashTable )
       for ( auto tostep = next.load(), tofree = tostep; tofree != nullptr; tofree = tostep )
       {
-        tostep = tofree->pchain.load();
+        tostep = tofree->pchain;
           tofree->~ChainHook();
         hookAlloc.deallocate( tofree, 0 );
       }
   }
-
-  template <class T>
-  auto  get_upper_tag( T* p ) -> uint16_t {  return static_cast<uint16_t>(uintptr_t(p) >> 48);  }
-  template <class T>
-  auto  get_lower_ptr( T* p ) -> T*       {  return reinterpret_cast<T*>( uintptr_t(p) & ~0xffff000000000000 );  }
 
   template <class Allocator>
   void  BlockChains<Allocator>::Insert( const std::string_view& key, uint32_t entity, const std::string_view& block, unsigned bkType )
@@ -240,7 +233,6 @@ namespace dynamic {
     auto  nhcode = std::hash<std::string_view>()( key );
     auto  hindex = nhcode % hashTable.size();
     auto& hentry = hashTable[hindex];
-    auto  hupTag = static_cast<uint16_t>( nhcode >> 48 );
     auto  hvalue = mtc::ptr::clean( hentry.load( std::memory_order_acquire ) );
 
     // check block type; set the type value if is not set yet
@@ -248,13 +240,12 @@ namespace dynamic {
       bkType = block.size() != 0 ? 0x10 : 0;
 
     // lookup the collision chain for the element with searched key
-    for ( auto sysptr = get_lower_ptr( hvalue ); hvalue != nullptr; sysptr = get_lower_ptr( hvalue = sysptr->pchain ) )
-      if ( hupTag == get_upper_tag( hvalue ) && sysptr->nhCode == nhcode && *sysptr == key )
+    for ( ; hvalue != nullptr; hvalue = hvalue->pchain )
+      if ( hvalue->nhCode == nhcode && *hvalue == key )
       {
-        if ( sysptr->bkType != bkType )
+        if ( hvalue->bkType != bkType )
           throw std::invalid_argument( "Block type do not match the previously defined type" );
-
-        return sysptr->Insert( entity, block );
+        return hvalue->Insert( entity, block );
       }
 
     // OK, try lock current entry with 'dirty' bit
@@ -263,17 +254,17 @@ namespace dynamic {
       std::memory_order_acquire ) ) hvalue = mtc::ptr::clean( hvalue );
 
     // lookup the list got again searching for existing key
-    for ( auto sysptr = get_lower_ptr( hvalue ); hvalue != nullptr; sysptr = get_lower_ptr( hvalue = sysptr->pchain ) )
-      if ( hupTag == get_upper_tag( hvalue ) && sysptr->nhCode == nhcode && *sysptr == key )
+    for ( ; hvalue != nullptr; hvalue = hvalue->pchain )
+      if ( hvalue->nhCode == nhcode && *hvalue == key )
       {
         hentry.store( mtc::ptr::clean( hentry.load(
           std::memory_order_acquire ) ),
           std::memory_order_release );
 
-        if ( sysptr->bkType != bkType )
+        if ( hvalue->bkType != bkType )
           throw std::invalid_argument( "Block type do not match the previously defined type" );
 
-        return sysptr->Insert( entity, block );
+        return hvalue->Insert( entity, block );
       }
 
     // list contains no needed entry; allocate new ChainHook for new key;
@@ -283,8 +274,7 @@ namespace dynamic {
       new( hvalue = hookAlloc.allocate( (sizeof(ChainHook) * 2 + key.size() - 1) / sizeof(ChainHook) ) )
         ChainHook( key, nhcode, bkType, mtc::ptr::clean( hentry.load() ), hookAlloc );
 
-      hentry.store( (ChainHook*)(uintptr_t(hvalue) | (uint64_t(hupTag) << 48)),
-        std::memory_order_release );
+      hentry.store( hvalue, std::memory_order_release );
 
       keysQueue.Put( hvalue );
       keySyncro.notify_one();
@@ -296,7 +286,7 @@ namespace dynamic {
         std::memory_order_release );
       throw;
     }
-    return get_lower_ptr( hvalue )->Insert( entity, block );
+    return hvalue->Insert( entity, block );
   }
 
   template <class Allocator>
@@ -305,13 +295,12 @@ namespace dynamic {
     auto  nhcode = std::hash<std::string_view>()( key );
     auto  hindex = nhcode % hashTable.size();
     auto& hentry = hashTable[hindex];
-    auto  hupTag = static_cast<uint16_t>( nhcode % 0xffff );
     auto  hvalue = mtc::ptr::clean( hentry.load( std::memory_order_acquire ) );
 
   // first try find existing block in the hash chain
-    for ( auto sysptr = get_lower_ptr( hvalue ); hvalue != nullptr; sysptr = get_lower_ptr( hvalue = sysptr->pchain ) )
-      if ( hupTag == get_upper_tag( hvalue ) && sysptr->nhCode == nhcode && *sysptr == key )
-        return sysptr;
+    for ( ; hvalue != nullptr; hvalue = hvalue->pchain )
+      if ( hvalue->nhCode == nhcode && *hvalue == key )
+        return hvalue;
 
     return nullptr;
   }
@@ -376,7 +365,7 @@ namespace dynamic {
   bool  BlockChains<Allocator>::Verify() const
   {
     for ( auto& next: hashTable )
-      for ( auto verify = next.load(); verify != nullptr; verify = verify->pchain.load() )
+      for ( auto verify = next.load(); verify != nullptr; verify = verify->pchain )
         if ( !verify->Verify() )
           return false;
     return true;
@@ -415,7 +404,7 @@ namespace dynamic {
 
       next->value.blockOffset = offset;
 
-    // store block acctoding to block type:
+    // store block according to block type:
     //  * blocks without coordinates;
     //  * blocks with coordinates
       if ( next->value.blocksChain->bkType == 0 )
@@ -441,12 +430,7 @@ namespace dynamic {
             lastId = p->entity;
           }
       }
-      chain = ::Serialize( ::Serialize( ::Serialize( chain,
-        uint8_t(0) ),
-        uint8_t(0) ),
-        uint8_t(0) );
-
-      offset += (next->value.blockLength = length + 3);
+      offset += (next->value.blockLength = length);
     }
 
   // store radix tree
@@ -573,9 +557,11 @@ namespace dynamic {
     auto  entity = uint32_t(0);
 
     for ( auto pentry = pfirst.load(); pentry != nullptr; pentry = pentry->p_next.load() )
+    {
       if ( pentry->entity <= entity )
         return false;
-      else entity = pentry->entity;
+      entity = pentry->entity;
+    }
 
     return true;
   }
