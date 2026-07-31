@@ -14,6 +14,7 @@ namespace imaging {
 
   void  Unpack(
     std::function<void(unsigned, const mtc::span<const widechar>&)> addstr,
+    std::function<void(unsigned, double)>                           addval,
     std::function<void(unsigned, unsigned)>                         addref,
     const mtc::span<const char>& );
 
@@ -23,8 +24,13 @@ namespace imaging {
   {
     Unpack( [&]( unsigned uflags, const mtc::span<const widechar>& inp )
       {
-        image.GetTokens().push_back( { uflags, image.AddBuffer( inp.data(), inp.size() ),
-          unsigned(image.GetTokens().size()), unsigned(inp.size()) } );
+        image.GetTokens().emplace_back( uflags, image.AddBuffer( inp.data(), inp.size() ),
+          unsigned(image.GetTokens().size()), unsigned(inp.size()) );
+      },
+      [&]( unsigned uflags, double val )
+      {
+        image.GetTokens().emplace_back( uflags, val,
+          unsigned(image.GetTokens().size()), snprintf( nullptr, 0, "%g", val ) );
       },
       [&]( unsigned uflags, unsigned pos )
       {

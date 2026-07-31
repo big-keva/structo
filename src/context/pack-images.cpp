@@ -52,7 +52,8 @@ namespace imaging {
       of_utf8str = 0x08,
       of_backref = 0x10,
       of_diffref = 0x18,
-      of_bitmask = 0x18
+      of_numeric = 0x20,
+      of_bitmask = 0x38
     };
 
     WordsEncoder( unsigned length ):
@@ -70,11 +71,12 @@ namespace imaging {
     template <class O>
     auto  EncodeWord( O* o, const TextToken& t, unsigned p ) -> O*
     {
-      auto  dwhash = std::hash<std::basic_string_view<widechar>>{}( t.GetWideStr() );
+      auto  dwhash = t.IsRational() ? std::hash<double>()( t.dvalue ) :
+        std::hash<std::basic_string_view<widechar>>{}( t.GetWideStr() );
       auto  refPos = dwhash % refHashMap.size();
       auto  ptrRef = refHashMap[refPos];
 
-      while ( ptrRef != nullptr && ptrRef->token->GetWideStr() != t.GetWideStr() )
+      while ( ptrRef != nullptr && *ptrRef->token != t )
         ptrRef = ptrRef->pnext;
 
       if ( ptrRef != nullptr )
@@ -91,6 +93,12 @@ namespace imaging {
         return ptrRef->where = p, ::Serialize( o, asDiff );
       }
 
+      if ( t.IsRational() )
+      {
+        o = ::Serialize( ::Serialize( o, (t.uFlags & 0x07) | of_numeric ),
+          (float)t.dvalue );
+      }
+        else
       if ( Is1251( t ) )
       {
         o = ::Serialize( o, As1251( t ) );
@@ -120,13 +128,13 @@ namespace imaging {
         return true;
       }
     static  auto  As1251( const TextToken& t ) -> unsigned
-      {  return unsigned(t.uFlags + ((t.length - 1) << 5));  }
+      {  return unsigned(t.uFlags + ((t.length - 1) << 6));  }
     static  auto  AsUtf8( const TextToken& t, size_t nbytes ) -> unsigned
-      {  return unsigned(t.uFlags + ((nbytes - 1) << 5) + of_utf8str);  }
+      {  return unsigned(t.uFlags + ((nbytes - 1) << 6) + of_utf8str);  }
     static  auto  AsDiff( const TextToken& t, unsigned diff ) -> unsigned
-      {  return unsigned(t.uFlags + ((diff - 1) << 5) + of_diffref);  }
+      {  return unsigned(t.uFlags + ((diff - 1) << 6) + of_diffref);  }
     static  auto  AsOffs( const TextToken& t, unsigned next ) -> unsigned
-      {  return unsigned(t.uFlags + ((next - 1) << 5) + of_backref);  }
+      {  return unsigned(t.uFlags + ((next - 1) << 6) + of_backref);  }
   };
 
   template <class O>
@@ -159,6 +167,7 @@ namespace imaging {
 
   void  Unpack(
     std::function<void(unsigned, const mtc::span<const widechar>&)> addstr,
+    std::function<void(unsigned, double)>                           addval,
     std::function<void(unsigned, unsigned)>                         addref,
     const mtc::span<const char>&                                    packed )
   {
@@ -179,15 +188,24 @@ namespace imaging {
 
       switch ( opt & WordsEncoder::of_bitmask )
       {
+        case WordsEncoder::of_numeric:
+        {
+          float fvalue;
+
+          if ( (inp = ::FetchFrom( inp, fvalue )) == nullptr )
+            throw std::invalid_argument( "broken text image" );
+          addval( opt & 0x07, fvalue );
+          break;
+        }
         case WordsEncoder::of_backref:
-          addref( opt & 0x7, 1 + (opt >> 5) );
+          addref( opt & 0x7, 1 + (opt >> 6) );
           break;
         case WordsEncoder::of_diffref:
-          addref( opt & 0x7, pos - (1 + (opt >> 5)) );
+          addref( opt & 0x7, pos - (1 + (opt >> 6)) );
           break;
         case WordsEncoder::of_utf8str:
         {
-          auto  len = 1 + (opt >> 5);
+          auto  len = 1 + (opt >> 6);
           auto  str = inp->getptr();
           auto  cch = codepages::utf8::strlen( str, len );
           auto  wcs = buf.GetBuffer( cch + 1 );
@@ -201,7 +219,7 @@ namespace imaging {
         }
         case WordsEncoder::of_1251str:  default:  // 0
         {
-          auto  len = 1 + (opt >> 5);
+          auto  len = 1 + (opt >> 6);
           auto  wcs = buf.GetBuffer( len );
           auto  str = inp->getptr();
           auto  out = wcs;
@@ -226,11 +244,19 @@ namespace imaging {
     Unpack(
       [&]( unsigned uflags, const mtc::span<const widechar>& inp )
       {
-        body.GetTokens().push_back( {
+        body.GetTokens().emplace_back(
           uflags,
           body.AddBuffer( inp.data(), inp.size() ),
           unsigned(body.GetTokens().size()),
-          unsigned(inp.size()) } );
+          unsigned(inp.size()) );
+      },
+      [&]( unsigned uflags, double val )
+      {
+        body.GetTokens().emplace_back(
+          uflags,
+          val,
+          unsigned(body.GetTokens().size()),
+          snprintf( nullptr, 0, "%g", val ) );
       },
       [&]( unsigned uflags, unsigned pos )
       {
