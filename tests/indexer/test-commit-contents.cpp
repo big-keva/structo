@@ -28,14 +28,19 @@ class MockPatch: public IStorage::ISerialized::IPatch
 public:
   void  Delete( EntityId ) override {}
   void  Update( EntityId, const void*, size_t ) override {}
-  void  Commit() override {}
-
 };
 
 class MockSeralized: public IStorage::ISerialized
 {
+  class MockPatch final: public IPatch
+  {
+    implement_lifetime_control
+
+    void  Delete( EntityId ) override {}
+    void  Update( EntityId, const void*, size_t ) override {}
+  };
+
   MockBuffer  buffer;
-  MockPatch   patch;
 
   implement_lifetime_stub
 
@@ -46,10 +51,11 @@ class MockSeralized: public IStorage::ISerialized
 
   auto  GetStats() -> mtc::zmap override {  return {};  }
 
+  auto  AddPatch() -> mtc::api<IPatch> override {  return new MockPatch();  }
+  void  SetPatch( IPatch* ) override {}
+
   auto  Commit() -> mtc::api<ISerialized> override  {  return this;  }
   void  Remove() override {}
-
-  auto  NewPatch() -> mtc::api<IPatch> override {  return &patch;  }
 
 };
 
