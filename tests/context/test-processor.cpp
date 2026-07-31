@@ -66,6 +66,7 @@ TestItEasy::RegisterFunc  test_processor( []()
     DeliriX::Text       ucText;
 
     CopyUtf16( &ucText, DeliriX::Text{
+      9167,
       "Первая строка текста: просто строка",
       "Вторая строка в новом абзаце",
       { "tag-1", {
@@ -78,13 +79,13 @@ TestItEasy::RegisterFunc  test_processor( []()
     {
       REQUIRE_NOTHROW( txProc.WordBreak( txBody, ucText ) );
 
-      REQUIRE( txBody.GetTokens().size() == 21U );
+      REQUIRE( txBody.GetTokens().size() == 22U );
 
       SECTION( "formatter may affect word breaking" )
       {
         if ( REQUIRE_NOTHROW( txProc.WordBreak( txBody, ucText, &mockFd ) ) )
         {
-          REQUIRE( txBody.GetTokens().size() == 19U );
+          REQUIRE( txBody.GetTokens().size() == 20U );
         }
       }
     }
@@ -99,6 +100,7 @@ TestItEasy::RegisterFunc  test_processor( []()
       if ( REQUIRE_NOTHROW( txBody.Serialize( DeliriX::dump_as::Tags( DeliriX::dump_as::MakeOutput( &dump ) ).ptr() ) ) )
       {
         REQUIRE( dump ==
+          "9167\n"
           "Первая\n"
           "строка\n"
           "текста\n"
@@ -132,7 +134,7 @@ TestItEasy::RegisterFunc  test_processor( []()
           for ( auto& next: txBody.GetLemmas() )
           {
             if ( REQUIRE( next.size() == 1 ) )
-              REQUIRE( next.front().get_idl() == 0xff );
+              REQUIRE( next.front().get_idl() >= 0xfdU );
           }
       }
       SECTION( "* language modules may be added" )
@@ -145,7 +147,7 @@ TestItEasy::RegisterFunc  test_processor( []()
             for ( auto& next: txBody.GetLemmas() )
             {
               if ( REQUIRE( next.size() == 1 ) )
-                REQUIRE( next.front().get_idl() == 0x7 );
+                REQUIRE( (next.front().get_idl() == 0x7 || next.front().get_idl() == 0xfeU) );
             }
         }
       }

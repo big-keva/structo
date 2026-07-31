@@ -23,7 +23,7 @@ namespace context {
   {
     std::vector<Lexeme> lexbuf;
 
-    return std::move( Lemmatize( lexbuf, str.c_str(), str.length() ) );
+    return std::move( Lemmatize( lexbuf, str ) );
   }
 
   auto  Processor::Lemmatize( const mtc::widestr& str, const as_wildcard_t& ) const -> std::vector<Lexeme>

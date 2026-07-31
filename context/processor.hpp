@@ -36,7 +36,7 @@ namespace context {
   template <class Allocator>
     auto  Lemmatize( BaseImage<Allocator>& ) const -> BaseImage<Allocator>&;
   template <class Allocator>
-    auto  Lemmatize( std::vector<Lexeme, Allocator>&, const widechar*, size_t ) const -> std::vector<Lexeme, Allocator>&;
+    auto  Lemmatize( std::vector<Lexeme, Allocator>&, wide_string_view ) const -> std::vector<Lexeme, Allocator>&;
   template <class Allocator>
     auto  MakeImage( BaseImage<Allocator>&, const ITextView&, const FieldHandler* = nullptr ) const -> BaseImage<Allocator>&;
   template <class Allocator>
@@ -116,7 +116,20 @@ namespace context {
   template <class Allocator>
   auto  Processor::Lemmatize( BaseImage<Allocator>& image ) const -> BaseImage<Allocator>&
   {
-    auto  strmap = mtc::arbitrarymap<std::vector<size_t>>();
+    struct StrRef
+    {
+      StrRef*           pnext;
+      const TextToken*  pword;
+      unsigned          index;
+    };
+    std::vector<StrRef>   items( image.tokens.size() );
+    StrRef*               plast = items.data();
+    std::vector<StrRef*>  itMap(
+      image.tokens.size() < 2003 ? 3001 :
+      image.tokens.size() < 8009 ? 12007 :
+      image.tokens.size() < 16001 ? 20011 :
+      image.tokens.size() < 28001 ? 32003 :
+      image.tokens.size() < 55001 ? 60013 : 90031 );
 
     image.lemmas.clear();
     image.lemmas.resize( image.tokens.size() );
@@ -126,28 +139,31 @@ namespace context {
     for ( size_t i = 0; i < image.tokens.size(); i++ )
     {
       auto& rfword = image.tokens[i];
-      auto  pfound = strmap.Search( rfword.pwsstr, sizeof(widechar) * rfword.length );
+      auto  dwhash = rfword.IsRational() ? std::hash<double>()( rfword.dvalue ) :
+        std::hash<std::basic_string_view<widechar>>()( rfword.GetWideStr() );
+      auto  hindex = dwhash % itMap.size();
+      auto  pfound = itMap[hindex];
+
+    // search for already lemmatized token
+      while ( pfound != nullptr && *pfound->pword != rfword )
+        pfound = pfound->pnext;
 
       if ( pfound == nullptr )
-        pfound = strmap.Insert( rfword.pwsstr, sizeof(widechar) * rfword.length );
+      {
+        auto  curlen = image.lexbuf.size();
 
-      pfound->push_back( i );
-    }
+        if ( rfword.IsRational() )
+          image.lexbuf.emplace_back( rfword.dvalue >= 0 ? 0xfe : 0xfd, rfword.dvalue );
+        else
+          Lemmatize( image.lexbuf, rfword.GetWideStr() );
 
-  // lemmatize the words
-    for ( auto next = strmap.Enum( nullptr ); next != nullptr; next = strmap.Enum( next ) )
-    {
-      auto  keystr = strmap.GetKey( next );
-      auto  keylen = strmap.KeyLen( next );
-      auto& values = strmap.GetVal( next );
-      auto  curlen = image.lexbuf.size();
+        new( &image.lemmas[i] ) mtc::span<Lexeme>( (Lexeme*)curlen,
+          image.lexbuf.size() - curlen );
 
-    // lemmatize next word
-      Lemmatize( image.lexbuf, (const widechar*)keystr, keylen / sizeof(widechar) );
-
-    // register word reference(s)
-      for ( auto& i: values )
-        new( &image.lemmas[i] ) mtc::span<Lexeme>( (Lexeme*)curlen, image.lexbuf.size() - curlen );
+        itMap[hindex] = new( plast++ ) StrRef{ itMap[hindex], &rfword, unsigned(i) };
+      }
+        else
+      image.lemmas[i] = image.lemmas[pfound->index];
     }
 
   // transform indexes to pointers
@@ -158,20 +174,20 @@ namespace context {
   }
 
   template <class Allocator>
-  auto  Processor::Lemmatize( std::vector<Lexeme, Allocator>& buf, const widechar* str, size_t len ) const -> std::vector<Lexeme, Allocator>&
+  auto  Processor::Lemmatize( std::vector<Lexeme, Allocator>& buf, wide_string_view str ) const -> std::vector<Lexeme, Allocator>&
   {
     auto  curlen = buf.size();
 
   // lemmatize with language modules in dictionary mode
     for ( auto& lang: languages )
-      lang.module->Lemmatize( InsertTerms( buf, lang.langId ).ptr(), lex_lemma, str, len );
+      lang.module->Lemmatize( InsertTerms( buf, lang.langId ).ptr(), lex_lemma, str.data(), str.size() );
 
     if ( buf.size() == curlen )
     {
-      buf.push_back( Lexeme( 0xff, codepages::strtolower( str, len ), buf.get_allocator() ) );
+      buf.push_back( Lexeme( 0xff, codepages::strtolower( str.data(), str.size() ), buf.get_allocator() ) );
 
       for ( auto& lang: languages )
-        lang.module->Lemmatize( InsertTerms( buf, lang.langId ).ptr(), lex_fuzzy, str, len );
+        lang.module->Lemmatize( InsertTerms( buf, lang.langId ).ptr(), lex_fuzzy, str.data(), str.size() );
     }
 
     return buf;
@@ -217,7 +233,15 @@ namespace context {
       auto  ptrend = ptrtop + sblock.size();
 
       if ( sblock.data() == nullptr )
+      {
+        if ( auto pval = beg->GetNumeric(); pval != nullptr )
+        {
+        // create word string
+          body.GetTokens().emplace_back( TextToken::is_first, *pval, offset, beg->GetTextSize() );
+          continue;
+        }
         throw std::invalid_argument( "Processor::WordBreak(...) can process only utf16 texts @" __FILE__ ":" LINE_STRING );
+      }
 
       for ( unsigned uFlags = TextToken::is_first; ptrtop != ptrend; uFlags = 0 )
       {
@@ -255,8 +279,8 @@ namespace context {
           }
 
           // create word string
-          body.GetTokens().push_back( { uFlags, origin,
-            uint32_t(offset + origin - buforg), uint32_t(ptrtop - origin) } );
+          body.GetTokens().emplace_back( uFlags, origin,
+            uint32_t(offset + origin - buforg), uint32_t(ptrtop - origin) );
         }
       }
     }

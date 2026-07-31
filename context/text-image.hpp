@@ -10,25 +10,60 @@
 namespace structo {
 namespace context {
 
+  using char_string_view = std::basic_string_view<char>;
+  using wide_string_view = std::basic_string_view<widechar>;
+
   struct TextToken
   {
     enum: unsigned
     {
-      lt_space = 1,
-      is_punct = 2,
-      is_first = 4
+      lt_space = 0x1,
+      is_punct = 0x2,
+      is_first = 0x4,
+      is_value = 0x8
     };
 
     unsigned        uFlags;
-    const widechar* pwsstr;
-    uint32_t        offset;
-    uint32_t        length;
+    union
+    {
+      const widechar* pwsstr;     // строка...
+      double          dvalue;     // ...или число
+    };
+    uint32_t        offset;       // смещение начала строки/числа в текстеs
+    uint32_t        length;       // длина текстового представления
 
-    auto  GetWideStr() const -> std::basic_string_view<widechar>  {  return { pwsstr, length };  }
-    auto  LeftSpaced() const {  return (uFlags & lt_space) != 0;  }
-    auto  IsPointing() const {  return (uFlags & is_punct) != 0;  }
-    auto  IsFirstOne() const {  return (uFlags & is_first) != 0;  }
+    TextToken( unsigned flags, const widechar* token, uint32_t uoffs, uint32_t usize ):
+      uFlags( flags ),
+      pwsstr( token ),
+      offset( uoffs ),
+      length( usize ) {}
+    TextToken( unsigned flags, double value, uint32_t uoffs, uint32_t usize ):
+      uFlags( flags | is_value ),
+      dvalue( value ),
+      offset( uoffs ),
+      length( usize ) {}
 
+    auto  GetWideStr() const -> wide_string_view
+      {  return { pwsstr, length };  }
+    bool  LeftSpaced() const
+      {  return (uFlags & lt_space) != 0;  }
+    bool  IsPointing() const
+      {  return (uFlags & is_punct) != 0;  }
+    bool  IsFirstOne() const
+      {  return (uFlags & is_first) != 0;  }
+    bool  IsRational() const
+      {  return (uFlags & is_value) != 0;  }
+
+    bool  operator == ( const TextToken& to ) const
+      {
+        if ( (uFlags & to.uFlags & is_value) == is_value )
+          return (dvalue > to.dvalue) - (dvalue < to.dvalue);
+        if ( (uFlags & is_value) != (to.uFlags & is_value) )
+          return false;
+        return GetWideStr() == to.GetWideStr();
+      }
+    bool  operator != ( const TextToken& to ) const
+      {  return !(*this == to);  }
   };
 
   class Lexeme: public Key
@@ -227,7 +262,8 @@ namespace context {
         // check if print next line to current IText*
           if ( markIt == markup.end() || (lineIt - tokens.begin()) < markIt->uLower )
           {
-            to->AddBlock( lineIt->pwsstr, lineIt->length );
+            if ( lineIt->IsRational() ) to->AddNumber( lineIt->dvalue );
+              else to->AddString( { lineIt->pwsstr, lineIt->length } );
 
             if ( ++lineIt == tokens.end() ) return;
               continue;
