@@ -66,19 +66,27 @@ namespace fusion {
     uint32_t  bkType;
     uint32_t  uCount;
     uint64_t  offset;
-    uint64_t  length;
+    uint64_t  blkLen;
+    uint32_t  navLen;
 
   public:
     auto  GetBufLen() const
     {
-      return ::GetBufLen( bkType ) + ::GetBufLen( uCount )
-           + ::GetBufLen( offset ) + ::GetBufLen( length );
+      return ::GetBufLen( bkType )
+           + ::GetBufLen( uCount )
+           + ::GetBufLen( offset )
+           + ::GetBufLen( blkLen )
+           + ::GetBufLen( navLen );
     }
     template <class O>
     O*    Serialize( O* o ) const
     {
-      return ::Serialize( ::Serialize( ::Serialize( ::Serialize( o,
-        bkType ), uCount ), offset ), length );
+      return
+        ::Serialize(
+        ::Serialize(
+        ::Serialize(
+        ::Serialize(
+        ::Serialize( o, bkType ), uCount ), offset ), blkLen ), navLen );
     }
 
   };
@@ -91,6 +99,13 @@ namespace fusion {
   {
     unsigned  lastId;
     uint64_t  offset;
+  };
+
+  struct BlockInfo
+  {
+    uint32_t  ucount;
+    uint64_t  blkLen;
+    uint32_t  navLen;
   };
 
   inline
@@ -109,7 +124,7 @@ namespace fusion {
   auto  MergeChains(
     mtc::api<mtc::IByteStream>      output,
     std::vector<EntityReference>&   buffer,
-    const std::vector<MapEntities>& blocks ) -> std::pair<uint32_t, uint64_t>
+    const std::vector<MapEntities>& blocks ) -> BlockInfo
   {
     auto      points = std::vector<DocAnchor>();
     uint64_t  length = 0;
@@ -170,22 +185,16 @@ namespace fusion {
 
     for ( auto& next: points )
     {
-      doclen = ::Serialize( ::Serialize( docbuf, next.lastId - daPrev.lastId ),
+      doclen = ::Serialize( ::Serialize( docbuf,
+        next.lastId - daPrev.lastId ),
         next.offset - daPrev.offset ) - docbuf;
 
       ::Serialize( output.ptr(), docbuf, doclen );
         cbPart += doclen;
-        length += doclen;
-      daPrev = next;
+        daPrev = next;
     }
 
-  // write navigation length at end
-    ::Serialize( ::Serialize( ::Serialize( output.ptr(),
-      uint8_t(cbPart >> 0x10) ),
-      uint8_t(cbPart >> 0x08) ),
-      uint8_t(cbPart >> 0x00) );
-
-    return { uint32_t(buffer.size()), length + 3 };
+    return { uint32_t(buffer.size()), length, cbPart };
   }
 
   void  ContentsMerger::MergeEntities()
@@ -273,7 +282,7 @@ namespace fusion {
     auto  selectSet = std::vector<size_t>( indices.size() );
     auto  refVector = std::vector<EntityReference>( 0x100000 );
     auto  radixTree = mtc::radix::tree<RadixLink>();
-    auto  keyRecord = RadixLink{ 0, 0, 0, 0 };
+    auto  keyRecord = RadixLink{ 0, 0, 0, 0, 0 };
 
   // create iterators list
     for ( auto& next : indices )
@@ -303,7 +312,7 @@ namespace fusion {
       if ( nCount != 0 )
       {
         auto  blockList = std::vector<MapEntities>( nCount );
-        auto  mergeStat = std::pair<uint32_t, uint64_t>{};
+        auto  mergeStat = BlockInfo{};
 
         for ( size_t i = 0; i != nCount; ++i )
           blockList[i] = { indices[selectSet[i]]->GetKeyBlock( *select ), &remapId[selectSet[i]] };
@@ -314,15 +323,16 @@ namespace fusion {
           MergeChains<SerializeZeroData>( chains, refVector, blockList ) :
           MergeChains<SerializeWithData>( chains, refVector, blockList );
 
-        if ( mergeStat.second != 0 )
+        if ( mergeStat.blkLen != 0 )
         {
           keyRecord.bkType = blockList.front().entityBlock->Type();
-          keyRecord.uCount = mergeStat.first;
-          keyRecord.length = mergeStat.second;
+          keyRecord.uCount = mergeStat.ucount;
+          keyRecord.blkLen = mergeStat.blkLen;
+          keyRecord.navLen = mergeStat.navLen;
 
           radixTree.Insert( *select, keyRecord );
 
-          keyRecord.offset += mergeStat.second;
+          keyRecord.offset += mergeStat.blkLen + mergeStat.navLen;
         }
 
         for ( size_t i = 0; i != nCount; ++i )
