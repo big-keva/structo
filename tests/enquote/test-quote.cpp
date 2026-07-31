@@ -73,9 +73,15 @@ public:
   }
 };
 
-auto  UTF8( const std::basic_string_view<widechar>& s ) -> mtc::charstr
+auto  UTF8( const DeliriX::Paragraph& s ) -> mtc::charstr
 {
-  return codepages::widetombcs( codepages::codepage_utf8, s );
+  if ( auto r = s.GetCharStr(); r.size() != 0 )
+    return mtc::charstr( r );
+  if ( auto r = s.GetWideStr(); r.size() != 0 )
+    return codepages::widetombcs( codepages::codepage_utf8, r );
+  if ( auto r = s.GetNumeric(); r != nullptr )
+    return mtc::strprintf( "%g", *r );
+  return "";
 }
 
 TestItEasy::RegisterFunc  test_quote( []()
@@ -86,6 +92,7 @@ TestItEasy::RegisterFunc  test_quote( []()
     auto  inText = DeliriX::Text();
 
     DeliriX::CopyUtf16( &inText, DeliriX::Text{
+      9762,
       "Первая строка текста: просто строка,",
       "вторая строка в новом абзаце",
       { "tag-1", {
@@ -117,7 +124,7 @@ TestItEasy::RegisterFunc  test_quote( []()
 
       if ( REQUIRE( quoted.GetBlocks().size() == inText.GetBlocks().size() ) )
         for ( size_t i = 0; i != inText.GetBlocks().size(); ++i )
-          REQUIRE( quoted.GetBlocks().at( i ).GetWideStr() == inText.GetBlocks().at( i ).GetWideStr() );
+          REQUIRE( quoted.GetBlocks().at( i ) == inText.GetBlocks().at( i ) );
 
       if ( REQUIRE( quoted.GetMarkup().size() == inText.GetMarkup().size() ) )
         for ( size_t i = 0; i != inText.GetMarkup().size(); i++ )
@@ -127,15 +134,16 @@ TestItEasy::RegisterFunc  test_quote( []()
       {
         auto  membuf = mtc::Arena();
         auto  quotes = queries::MakeAbstract( membuf, {
-          queries::MakeEntrySet( membuf, { { 1, 0 }, { 2, 1 } } ),
-          queries::MakeEntrySet( membuf, { { 13, 2 }, { 14, 3 } } ) } );
+          queries::MakeEntrySet( membuf, { { 2, 0 }, { 3, 1 } } ),
+          queries::MakeEntrySet( membuf, { { 14, 2 }, { 15, 3 } } ) } );
 
         quoted = Quoter( quotes );
 
-        if ( REQUIRE( quoted.GetBlocks().size() == 2 ) )
+        if ( REQUIRE( quoted.GetBlocks().size() == 3 ) )
         {
-          REQUIRE( UTF8( quoted.GetBlocks()[0].GetWideStr() ) == "Первая \x7строка\x8 \x7текста\x8: просто строка," );
-          REQUIRE( UTF8( quoted.GetBlocks()[1].GetWideStr() ) == "Строка \x7внутри\x8 \x7тега\x8" );
+          REQUIRE( UTF8( quoted.GetBlocks()[0] ) == "9762" );
+          REQUIRE( UTF8( quoted.GetBlocks()[1] ) == "Первая \x7строка\x8 \x7текста\x8: просто строка," );
+          REQUIRE( UTF8( quoted.GetBlocks()[2] ) == "Строка \x7внутри\x8 \x7тега\x8" );
         }
       }
     }
@@ -158,7 +166,7 @@ TestItEasy::RegisterFunc  test_quote( []()
         quoted = Quoter( {} );
 
         if ( REQUIRE( quoted.GetBlocks().size() == 1 ) )
-          REQUIRE( UTF8( quoted.GetBlocks().front().GetWideStr() ) == "Текст, что надо всегда цитировать" );
+          REQUIRE( UTF8( quoted.GetBlocks().front() ) == "Текст, что надо всегда цитировать" );
         if ( REQUIRE( quoted.GetMarkup().size() == 1 ) )
           REQUIRE( std::string_view( quoted.GetMarkup().front().tagKey ) == "tag-3" );
 
@@ -168,14 +176,15 @@ TestItEasy::RegisterFunc  test_quote( []()
       SECTION( "with quotation data, it selects fragments" )
       {
         auto  quotes = queries::MakeAbstract( membuf, {
-          queries::MakeEntrySet( membuf, { { 1, 0 }, { 2, 1 } } ),
-          queries::MakeEntrySet( membuf, { { 12, 2 }, { 13, 3 } } ) } );
+          queries::MakeEntrySet( membuf, { { 2, 0 }, { 3, 1 } } ),
+          queries::MakeEntrySet( membuf, { { 13, 2 }, { 14, 3 } } ) } );
 
         quoted = Quoter( quotes );
 
-        if ( !REQUIRE( quoted.GetBlocks().size() == 2 )
-          || !REQUIRE( UTF8( quoted.GetBlocks()[0].GetWideStr() ) == "Первая \x7строка\x8 \x7текста\x8: просто строка," )
-          || !REQUIRE( UTF8( quoted.GetBlocks()[1].GetWideStr() ) == "\x7Строка\x8 \x7внутри\x8 тега" ) )
+        if ( !REQUIRE( quoted.GetBlocks().size() == 3 )
+          || !REQUIRE( UTF8( quoted.GetBlocks()[0] ) == "9762" )
+          || !REQUIRE( UTF8( quoted.GetBlocks()[1] ) == "Первая \x7строка\x8 \x7текста\x8: просто строка," )
+          || !REQUIRE( UTF8( quoted.GetBlocks()[2] ) == "\x7Строка\x8 \x7внутри\x8 тега" ) )
         {
           quoted.Serialize( DeliriX::dump_as::Json( DeliriX::dump_as::MakeOutput( stdout ) ) );
         }
@@ -187,10 +196,11 @@ TestItEasy::RegisterFunc  test_quote( []()
           quoted = Quoter( quotes );
 //            .SetLabels( "<span id=%u>", "</span>" )
 
-          if ( !REQUIRE( quoted.GetBlocks().size() == 3 )
-            || !REQUIRE( UTF8( quoted.GetBlocks()[0].GetWideStr() ) == "Первая \x7строка\x8 \x7текста\x8: просто строка," )
-            || !REQUIRE( UTF8( quoted.GetBlocks()[1].GetWideStr() ) == "\x7Строка\x8 \x7внутри\x8 тега" )
-            || !REQUIRE( UTF8( quoted.GetBlocks()[2].GetWideStr() ) == "Текст, что надо всегда цитировать" ) )
+          if ( !REQUIRE( quoted.GetBlocks().size() == 4 )
+            || !REQUIRE( UTF8( quoted.GetBlocks()[0] ) == "9762" )
+            || !REQUIRE( UTF8( quoted.GetBlocks()[1] ) == "Первая \x7строка\x8 \x7текста\x8: просто строка," )
+            || !REQUIRE( UTF8( quoted.GetBlocks()[2] ) == "\x7Строка\x8 \x7внутри\x8 тега" )
+            || !REQUIRE( UTF8( quoted.GetBlocks()[3] ) == "Текст, что надо всегда цитировать" ) )
           {
             quoted.Serialize( DeliriX::dump_as::Json( DeliriX::dump_as::MakeOutput( stdout ) ) );
           }
@@ -201,13 +211,13 @@ TestItEasy::RegisterFunc  test_quote( []()
         SECTION( "long events are quoted partially")
         {
           quotes = queries::MakeAbstract( membuf, {
-            queries::MakeEntrySet( membuf, { { 30, 0 }, { 41, 1 } } ) } );
+            queries::MakeEntrySet( membuf, { { 31, 0 }, { 42, 1 } } ) } );
 
           quoted = Quoter( quotes );
 
           if ( !REQUIRE( quoted.GetBlocks().size() == 2 )
-            || !REQUIRE( UTF8( quoted.GetBlocks()[0].GetWideStr() ) == "… строка очень длинная и \x7состоит\x8 из множества разных слов…" )
-            || !REQUIRE( UTF8( quoted.GetBlocks()[1].GetWideStr() ) == "… для проявления многоточий в \x7цитировании\x8" ) )
+            || !REQUIRE( UTF8( quoted.GetBlocks()[0] ) == "… строка очень длинная и \x7состоит\x8 из множества разных слов…" )
+            || !REQUIRE( UTF8( quoted.GetBlocks()[1] ) == "… для проявления многоточий в \x7цитировании\x8" ) )
           {
             quoted.Serialize( DeliriX::dump_as::Json( DeliriX::dump_as::MakeOutput( stdout ) ) );
           }
@@ -215,13 +225,13 @@ TestItEasy::RegisterFunc  test_quote( []()
         SECTION( "multiple events in one block are supported" )
         {
           quotes = queries::MakeAbstract( membuf, {
-            queries::MakeEntrySet( membuf, { { 33, 0 } } ),
-            queries::MakeEntrySet( membuf, { { 39, 1 } } ) } );
+            queries::MakeEntrySet( membuf, { { 34, 0 } } ),
+            queries::MakeEntrySet( membuf, { { 40, 1 } } ) } );
 
           quoted = Quoter( quotes );
 
           if ( !REQUIRE( quoted.GetBlocks().size() == 1 )
-            || !REQUIRE( UTF8( quoted.GetBlocks()[0].GetWideStr() ) == "… и состоит из множества \x7разных\x8 слов и букв для проявления \x7многоточий\x8 в цитировании" ) )
+            || !REQUIRE( UTF8( quoted.GetBlocks()[0] ) == "… и состоит из множества \x7разных\x8 слов и букв для проявления \x7многоточий\x8 в цитировании" ) )
           {
             quoted.Serialize( DeliriX::dump_as::Json( DeliriX::dump_as::MakeOutput( stdout ) ) );
           }
