@@ -271,7 +271,7 @@ namespace dynamic {
     uint64_t  linkagesSize;
 
     if ( pStorage == nullptr )
-      throw std::logic_error( "output storage is not defined, but FlushSink() was called" );
+      throw std::logic_error( "output storage is not defined, but Commit() was called" );
 
   // finalize keys thread and remove all the deleted elements from lists
     contents.StopIt().Remove( shadowed );
