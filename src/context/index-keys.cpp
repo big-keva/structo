@@ -1,4 +1,5 @@
 # include "../../context/index-keys.hpp"
+# include "dbl-base16.hpp"
 
 namespace structo {
 namespace context {
@@ -188,6 +189,28 @@ namespace context {
     {
       if ( keyptr != key.keybuf ) ++(-1 + (OnHeapKey*)keyptr)->rcount;
         else keyptr = (char*)memcpy( keybuf, key.keybuf, sizeof(keybuf) );
+    }
+  }
+
+  Key::Key( unsigned idl, double val )
+  {
+    if ( val >= 0.0 )
+    {
+      auto  pflush = positive_flush<sizeof(keybuf) - 2, 0>();
+      auto  keylen = valuelen( idl << 2 ) + make_double_key( pflush, val ).size();
+      auto  keyout = keyptr = keybuf;
+
+      memcpy( writeint( ::Serialize( keyout, keylen ), idl << 2 ),
+        pflush.data(), pflush.size() );
+    }
+      else
+    {
+      auto  nflush = negative_flush<sizeof(keybuf) - 2, 0>();
+      auto  keylen = valuelen( idl << 2 ) + make_double_key( nflush, val ).size();
+      auto  keyout = keyptr = keybuf;
+
+      memcpy( writeint( ::Serialize( keyout, keylen ), idl << 2 ),
+        nflush.data(), nflush.size() );
     }
   }
 

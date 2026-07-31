@@ -77,6 +77,7 @@ namespace context {
     Key();
     Key( Key&& );
     Key( const Key& );
+    Key( unsigned, double );
     Key( unsigned, uint32_t );
     Key( unsigned, uint64_t );
   template <class Allocator = std::allocator<char>>
