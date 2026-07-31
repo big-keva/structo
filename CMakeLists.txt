@@ -9,6 +9,7 @@ set(CMAKE_CXX_STANDARD 17)
 if(MSVC)
   add_compile_options(-D_CRT_SECURE_NO_WARNINGS)
 else()
+  add_compile_options(-fPIC)
   add_compile_options(-mfpmath=sse -fstack-protector-all -g
 	-W -Wall -Wextra -Wcast-align -pedantic -Wfloat-equal -Wpointer-arith -Wformat-security
 	-Wmissing-format-attribute -Wformat=1 -Wwrite-strings -Wcast-align -Wno-long-long
