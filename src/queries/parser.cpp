@@ -51,13 +51,12 @@ namespace queries {
       }
   };
 
-  bool  IsChar( const Token& t, widechar c ) noexcept     {  return t.length == 1 && *t.pwsstr == c;  }
-  bool  IsChar( const Token& t, char c ) noexcept         {  return t.length == 1 && IsChar( t, codepages::xlatWinToUtf16[(unsigned char)c] );  }
-  bool  IsWord( const Token& t, const char* s ) noexcept  {  return t.length == strlen( s ) && mtc::w_strncasecmp( t.pwsstr, s, t.length ) == 0;  }
+  bool  IsChar( const Token& t, widechar c ) noexcept     {  return (t.uFlags & t.is_value) == 0 && t.length == 1 && *t.pwsstr == c;  }
+  bool  IsChar( const Token& t, char c ) noexcept         {  return (t.uFlags & t.is_value) == 0 && t.length == 1 && IsChar( t, codepages::xlatWinToUtf16[(unsigned char)c] );  }
+  bool  IsWord( const Token& t, const char* s ) noexcept  {  return (t.uFlags & t.is_value) == 0 && t.length == strlen( s ) && mtc::w_strncasecmp( t.pwsstr, s, t.length ) == 0;  }
 
   bool  operator == ( const Token& t, char c )            {  return IsChar( t, c );  }
   bool  operator == ( const Token& t, const char* s )     {  return IsWord( t, s );  }
-  bool  operator == ( const Token& l, const Token& r )    {  return l.length == r.length && mtc::w_strncasecmp( l.pwsstr, r.pwsstr, l.length ) == 0;  }
 template <class T>
   bool  operator != ( const Token& t, T x )               {  return !(t == x);  }
 
@@ -451,7 +450,7 @@ template <class T>
 
   auto  ParseQuery( const widechar* str, size_t len ) -> mtc::zval
   {
-    auto  intext = DeliriX::Text( { str, len } );
+    auto  intext = DeliriX::Text( mtc::widestr{ str, len } );
     auto  wbreak = context::Processor().WordBreak( intext );
 
     return ParseQuery( wbreak.GetTokens().data(), wbreak.GetTokens().data() + wbreak.GetTokens().size() );
