@@ -374,7 +374,7 @@ namespace enquote {
     const MarkupTag*  fmtbeg,
     Span              bounds ) const
   {
-    auto  quoted = std::function<const EntryPos*(unsigned)>( []( unsigned ) -> const EntryPos* {  return nullptr;  } );
+    auto  quoted = std::function( []( unsigned ) -> const EntryPos* {  return nullptr;  } );
 
   // move to first valuable format
     while ( fmtbeg != markup.end() && fmtbeg->uUpper < bounds.uLower )
