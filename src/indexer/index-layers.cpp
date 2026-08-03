@@ -260,7 +260,7 @@ namespace indexer {
 
   auto  IndexLayers::Entities::Last() const -> uint32_t
   {
-    return blocks.size() != 0 ? blocks.back().uUpper : 0;
+    return blocks.size() != 0 ? blocks.back().uLower + blocks.back().entSet->Last() : 0;
   }
 
   auto  IndexLayers::Entities::Copy( const Bounds& bounds ) const -> mtc::api<IEntities>
