@@ -232,17 +232,13 @@ namespace context {
       auto  ptrtop = buforg;
       auto  ptrend = ptrtop + sblock.size();
 
-      if ( sblock.data() == nullptr )
+      if ( sblock.empty() )
       {
         if ( auto pval = beg->GetNumeric(); pval != nullptr )
-        {
-        // create word string
           body.GetTokens().emplace_back( TextToken::is_first, *pval, offset, beg->GetTextSize() );
-          continue;
-        }
-        throw std::invalid_argument( "Processor::WordBreak(...) can process only utf16 texts @" __FILE__ ":" LINE_STRING );
+        else throw std::invalid_argument( "Processor::WordBreak(...) can process only utf16 texts @" __FILE__ ":" LINE_STRING );
       }
-
+        else
       for ( unsigned uFlags = TextToken::is_first; ptrtop != ptrend; uFlags = 0 )
       {
         // detect lower space
