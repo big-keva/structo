@@ -5,7 +5,7 @@
 
 namespace structo {
 namespace indexer {
-namespace fusion {
+namespace combine {
 
   class ContentsMerger
   {

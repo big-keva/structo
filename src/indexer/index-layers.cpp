@@ -1,5 +1,8 @@
 # include "index-layers.hpp"
 
+#include <absl/strings/str_format.h>
+#include <absl/strings/internal/str_format/extension.h>
+#include <mtc/ptr.h>
 #include <storage/posix-fs.hpp>
 
 # include "override-entities.hpp"
@@ -15,11 +18,13 @@ namespace indexer {
     {
       uint32_t            uLower;
       uint32_t            uUpper;
+      BanPtr              banned;
       mtc::api<IEntities> entSet;
     };
 
-    using BlockSet = std::vector<BlockEntry>;
+    using BlockSet = std::list<BlockEntry>;
 
+  public:
     mtc::api<const Iface>             holder;
     BlockSet                          blocks;
     mutable BlockSet::const_iterator  pblock;
@@ -48,9 +53,8 @@ namespace indexer {
   {
     uint32_t  uLower = 1;
 
-
     for ( auto end = indices + count; indices != end; uLower += (*indices++)->GetMaxIndex() )
-      layers.emplace_back( uLower, *indices );
+      layers.store( new IndexEntry( uLower, *indices, layers.load() ) );
   }
 
  /*
@@ -63,21 +67,17 @@ namespace indexer {
   */
   auto  IndexLayers::getEntity( EntityId id ) const -> mtc::api<const IEntity>
   {
-    for ( auto beg = layers.rbegin(); beg != layers.rend(); ++beg )
-    {
-      auto  entity = beg->pIndex->GetEntity( id );
-
-      if ( entity != nullptr )
-        return beg->Override( entity );
-    }
+    for ( auto layer = layers.load(); layer != nullptr; layer = layer->pChain.load() )
+      if ( auto entity = layer->pIndex->GetEntity( id ); entity != nullptr )
+        return layer->Override( entity );
     return {};
   }
 
   auto  IndexLayers::getEntity( uint32_t ix ) const -> mtc::api<const IEntity>
   {
-    for ( auto& next: layers )
-      if ( next.uLower <= ix && next.uUpper >= ix )
-        return next.pIndex->GetEntity( ix - next.uLower + 1 );
+    for ( auto layer = layers.load(); layer != nullptr && layer->uUpper >= ix; layer = layer->pChain.load() )
+      if ( layer->uLower <= ix )
+        return layer->Override( layer->pIndex->GetEntity( ix - layer->uLower + 1 ) );
 
     return {};
   }
@@ -86,8 +86,9 @@ namespace indexer {
   {
     auto  deleted = false;
 
-    for ( auto& next: layers )
-      deleted |= next.pIndex->DelEntity( id );
+    for ( auto layer = layers.load(); layer != nullptr; layer = layer->pChain.load() )
+      deleted |= layer->pIndex->DelEntity( id );
+
     return deleted;
   }
 
@@ -95,54 +96,40 @@ namespace indexer {
   {
     auto  entity = mtc::api<const IEntity>();
 
-    for ( auto& next: layers )
-      if ( (entity = next.pIndex->SetExtras( id, xtras )) != nullptr )
-        return entity;
+    for ( auto layer = layers.load(); layer != nullptr; layer = layer->pChain.load() )
+      if ( (entity = layer->pIndex->SetExtras( id, xtras )) != nullptr )
+        return layer->Override( entity );
 
     return {};
   }
 
   auto  IndexLayers::getMaxIndex() const -> uint32_t
   {
-    return layers.size() != 0 ? layers.back().uLower + layers.back().pIndex->GetMaxIndex() - 1 : 0;
+    if ( auto layer = layers.load(); layer != nullptr )
+      return layer->uLower + layer->pIndex->GetMaxIndex() - 1;
+    return 0;
   }
 
   auto  IndexLayers::getKeyBlock( const std::string_view& key, const mtc::Iface* pix ) const -> mtc::api<IContentsIndex::IEntities>
   {
-    mtc::api<Entities>  entities;
+    auto  entities = mtc::api( new Entities( pix ) );
 
-    for ( auto& next: layers )
-    {
-     auto  pblock = next.pIndex->GetKeyBlock( key );
-
-      if ( pblock != nullptr )
-      {
-        if ( entities == nullptr )
-          entities = new Entities( pix );
-
-        entities->AddBlock( { next.uLower, next.uUpper, pblock } );
-      }
-    }
+  // fill blocks to the entities holder
+    for ( auto layer = layers.load(); layer != nullptr; layer = layer->pChain.load() )
+      if ( auto block = layer->pIndex->GetKeyBlock( key ); block != nullptr )
+        entities->AddBlock( { layer->uLower, layer->uUpper, layer->banned, block } );
 
   // check if blocks layers has only one block
-    if ( entities == nullptr || entities->Size() != 1 )
-      return entities.ptr();
-
-    if ( entities->blocks.front().uLower == 1 )
-      return entities->blocks.front().entSet;
-
-    return new Override::Entities(
-      entities->blocks.front().entSet,
-      entities->blocks.front().uLower - 1 );
+    return entities->Size() != 0 ? entities.ptr() : nullptr;
   }
 
   auto  IndexLayers::getKeyStats( const std::string_view& key ) const -> IContentsIndex::BlockInfo
   {
     IContentsIndex::BlockInfo blockStats = { uint32_t(-1), 0 };
 
-    for ( auto& next: layers )
+    for ( auto layer = layers.load(); layer != nullptr; layer = layer->pChain.load() )
     {
-      auto  cStats = next.pIndex->GetKeyStats( key );
+      auto  cStats = layer->pIndex->GetKeyStats( key );
 
       if ( cStats.bkType == uint32_t(-1) )
         continue;
@@ -158,13 +145,20 @@ namespace indexer {
 
   void  IndexLayers::addContents( mtc::api<IContentsIndex> ix )
   {
-    auto  uLower = layers.empty() ? 1 : layers.back().uUpper + 1;
+    auto  layer = layers.load();
+    auto  lower = layer != nullptr ? layer->uUpper + 1 : 1;
+    auto  alloc = new IndexEntry( lower, ix, layer );
 
-    layers.emplace_back( uLower, ix );
+    while ( !layers.compare_exchange_strong( layer, alloc ) )
+    {
+      alloc->uLower = layer->uUpper + 1;
+      alloc->pChain = layer;
+    }
   }
 
   auto  IndexLayers::listContents( const std::string_view& key, const mtc::Iface* poo  ) -> mtc::api<IContentsIndex::IContentsList>
   {
+    /*
     auto  contents = std::vector<mtc::api<IContentsIndex::IContentsList>>();
     auto  nextList = mtc::api<IContentsIndex::IContentsList>();
 
@@ -174,46 +168,95 @@ namespace indexer {
 
     return contents.size() > 1 ? new ContentsList( contents, poo ) :
            contents.size() > 0 ? contents.front() : nullptr;
+    */
+    return nullptr;
   }
 
   void  IndexLayers::commitItems()
   {
-    for ( auto& next: layers )
-      next.pIndex->Commit();
+    for ( auto layer = layers.load(); layer != nullptr; layer = layer->pChain.load() )
+      layer->pIndex->Commit();
   }
 
+ /*
+  * Разрешить коллизии идентификаторов в загруженных индексах, выставив соответствующие биты
+  * для документов, более свежие версии которых есть в начале списка
+  */
   void  IndexLayers::hideClashes()
   {
-    for ( auto beg = layers.begin(); beg != layers.end(); ++beg )
+    using Iterator = mtc::api<IContentsIndex::IEntitiesList>;
+    using Document = mtc::api<const IEntity>;
+
+    struct  Entry
     {
+      IndexEntry* player;
+      Iterator    itnext;
+      Document    entity;
+      EntityId    ent_id;
+    };
+
+    auto  itlist = std::vector<Entry>();
+    auto  select = std::vector<std::vector<Entry>::iterator>();
+
+  // построить массив в порядке возрастания индексов по времени
+    for ( auto layer = layers.load(); layer != nullptr; layer = layer->pChain.load() )
+    {
+      auto  itnext = layer->pIndex->ListEntities( "" );
+      auto  entity = itnext != nullptr ? itnext->Curr() : nullptr;
+
+      if ( entity != nullptr )
+        itlist.push_back( { layer, itnext, entity, entity->GetId() } );
+    }
+
+    std::reverse(
+      itlist.begin(), itlist.end() );
+    select.resize(
+      itlist.size() );
+
+  // пройтись по всем идентификаторам и, если есть более чем в одном индексе, забанить в остальных
+    while ( itlist.size() > 1 )
+    {
+      auto    sel_id = (const EntityId*)nullptr;
+      size_t  sellen = 0;
+
+    // select mininal ids
+      for ( auto it = itlist.begin(); it != itlist.end(); ++it )
+      {
+        int   rescmp = sel_id == nullptr ? -1 : it->ent_id.compare( *sel_id );
+
+      // select minimal entities
+        if ( rescmp <= 0 )
+          sel_id = &(select[(sellen = rescmp < 0 ? 0 : sellen)++] = it)->ent_id;
+      }
+
+    // check latest versions
+      for ( size_t i = 0; i + 1 < sellen; ++i )
+      {
+        auto  uindex = select[i]->entity->GetIndex();
+
+        (*select[i]->player->banned)[uindex / std::numeric_limits<uint32_t>::digits]
+          |= (1 << (uindex % std::numeric_limits<uint32_t>::digits));
+      }
+
+      for ( size_t i = sellen; i-- > 0; )
+      {
+        if ( (select[i]->entity = select[i]->itnext->Next()) != nullptr )
+          select[i]->ent_id = select[i]->entity->GetId();
+        else itlist.erase( select[i] );
+      }
     }
   }
 
   // IndexLayers::IndexEntry implementation
 
-  IndexLayers::IndexEntry::IndexEntry( uint32_t lower, mtc::api<IContentsIndex> index ):
+  IndexLayers::IndexEntry::IndexEntry( uint32_t lower, mtc::api<IContentsIndex> index, IndexEntry* chain ):
+    pChain( chain ),
     uLower( lower ),
     uUpper( uLower + index->GetMaxIndex() - 1 ),
-    pIndex( index )
+    pIndex( index ),
+    banned( std::make_shared<BanMap>(
+      (index->GetMaxIndex() + std::numeric_limits<uint32_t>::digits - 1) / std::numeric_limits<uint32_t>::digits ) )
   {
-  }
-  IndexLayers::IndexEntry::IndexEntry( const IndexEntry& ie ):
-    uLower( ie.uLower ),
-    uUpper( ie.uUpper ),
-    pIndex( ie.pIndex ),
-    backup( ie.backup ),
-    dwSets( ie.dwSets )
-  {
-  }
-
-  auto  IndexLayers::IndexEntry::operator=( const IndexEntry& ie ) -> IndexEntry&
-  {
-    uLower = ie.uLower;
-    uUpper = ie.uUpper;
-    pIndex = ie.pIndex;
-    backup = ie.backup;
-    dwSets = ie.dwSets;
-    return *this;
   }
 
   auto  IndexLayers::IndexEntry::Override( mtc::api<const IEntity> entity ) const -> mtc::api<const IEntity>
@@ -234,7 +277,7 @@ namespace indexer {
     if ( blocks.empty() )
       bktype = block.entSet->Type();
 
-    blocks.emplace_back( block );
+    blocks.push_front( block );
       pblock = blocks.begin();
       ncount += block.entSet->Size();
   }
@@ -277,6 +320,7 @@ namespace indexer {
         auto  blcopy = BlockEntry{
           block.uLower,
           block.uUpper,
+          block.banned,
           block.entSet->Copy( { bounds.uLower - block.uLower + 1, bounds.uUpper - block.uLower + 1 } ) };
 
         if ( blcopy.entSet != nullptr )

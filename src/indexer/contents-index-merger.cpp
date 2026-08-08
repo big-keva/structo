@@ -6,7 +6,7 @@
 
 namespace structo {
 namespace indexer {
-namespace fusion {
+namespace combine {
 
   using IEntityIterator = IContentsIndex::IEntitiesList;
   using IRecordIterator = IContentsIndex::IContentsList;

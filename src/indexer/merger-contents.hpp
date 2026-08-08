@@ -5,7 +5,7 @@
 
 namespace structo {
 namespace indexer {
-namespace fusion {
+namespace combine {
 
   class Contents
   {
@@ -15,7 +15,7 @@ namespace fusion {
     mtc::api<IStorage::IIndexStore>       outputStore;
 
   public:
-    auto  Add( const mtc::api<IContentsIndex> ) -> Contents&;
+    auto  Add( mtc::api<IContentsIndex> ) -> Contents&;
 
     auto  Set( Notify::Func ) -> Contents&;
     auto  Set( std::function<bool()> ) -> Contents&;

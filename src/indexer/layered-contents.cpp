@@ -56,21 +56,26 @@ namespace layered {
     void  Remove() override;
 
   protected:
-    using LayersIt = decltype(layers)::iterator;
     using EventRec = std::pair<void*, Notify::Event>;
+    using AtoIndex = std::atomic<IndexEntry*>;
+    using MergeSet = struct
+    {
+      AtoIndex* beg = nullptr;
+      AtoIndex* end = nullptr;
+
+      bool empty() const {  return beg == end;  }
+    };
 
     void  MergeMonitor( const std::chrono::seconds& );
-    auto  SelectLimits() -> std::pair<LayersIt, LayersIt>;
+    auto  SelectLimits() -> MergeSet;
     auto  WaitGetEvent( const std::chrono::seconds& ) -> EventRec;
 
   protected:
     mtc::api<IStorage>          istore;
     dynamic::Settings           dynSet;
-    bool                        rdOnly = false;
+    bool                        rdOnly = true;
 
     volatile bool               canRun = true;    // the continue flag
-
-    mutable std::shared_mutex   ixlock;
 
   // event manager - the events are processed after the index
   // asyncronous action is performed
@@ -87,6 +92,7 @@ namespace layered {
     {
       uint32_t                uLower;
       uint32_t                uUpper;
+      BanPtr                  banned;
       mtc::api<IEntitiesList> pItems;
     };
 
@@ -109,6 +115,7 @@ namespace layered {
     {
       uint32_t                uLower;
       uint32_t                uUpper;
+      BanPtr                  banned;
       mtc::api<IEntitiesList> pItems;
       mtc::api<const IEntity> entity;
       std::string_view        ent_id;
@@ -144,16 +151,21 @@ namespace layered {
       for ( auto serial = sources->Get(); serial != nullptr; serial = sources->Get() )
         addContents( static_::Index().Create( serial ) );
 
+  // resolve conflicts
+    hideClashes();
+
   // add dynamic index to the end if possible
     if ( dynamic != nullptr )
     {
       addContents( dynamic::Index()
         .Set( dynamic )
         .Set( dynSet ).Create() );
-      layers.back().uUpper = uint32_t(-1);
-      layers.back().dwSets = 1;
+
+      layers.load()->uUpper = uint32_t(-1);
+      layers.load()->dwSets = 1;
+
       rdOnly = false;
-    } else rdOnly = true;
+    }
   }
 
   auto  ContentsIndex::StartMonitor( const std::chrono::seconds& mergeMonitorDelay ) -> ContentsIndex*
@@ -180,25 +192,18 @@ namespace layered {
     return rcount;
   }
 
-
   auto  ContentsIndex::GetEntity( EntityId id ) const -> mtc::api<const IEntity>
   {
-    auto  shlock = mtc::make_shared_lock( ixlock );
-
     return getEntity( id );
   }
 
   auto  ContentsIndex::GetEntity( uint32_t id ) const -> mtc::api<const IEntity>
   {
-    auto  shlock = mtc::make_shared_lock( ixlock );
-
     return getEntity( id );
   }
 
   bool  ContentsIndex::DelEntity( EntityId id )
   {
-    auto  shlock = mtc::make_shared_lock( ixlock );
-
     return delEntity( id );
   }
 
@@ -207,54 +212,46 @@ namespace layered {
     const std::string_view&           xtra,
     const std::string_view&           beef ) -> mtc::api<const IEntity>
   {
-    if ( layers.empty() )
+    auto  player = layers.load();
+
+    if ( player == nullptr || (player->dwSets & 0x01) == 0 )
       throw std::logic_error( "index flakes are not initialized" );
 
     for ( ; ; )
     {
-      auto  shlock = mtc::make_shared_lock( ixlock );
-      auto  exlock = mtc::make_unique_lock( ixlock, std::defer_lock );
-      auto  pindex = layers.back().pIndex.ptr();    // the last index pointer, unchanged in one thread
-      auto  thedoc = mtc::api<const IEntity>();
-
-    // try Set the entity to the last index in the chain; if done, try delete
-    // the document from all the slices except the last one
+    // try SetEntity(...) to the last index in the chain;
+    // ** mark the index as containing actual id verion
       try
       {
-        if ( (thedoc = pindex->SetEntity( id, keys, xtra, beef )) != nullptr )
-          for ( auto beg = layers.begin(); beg + 1 != layers.end(); ++beg )
-            beg->pIndex->DelEntity( id );
-
-        return layers.back().Override( thedoc );
+        if ( auto thedoc = player->pIndex->SetEntity( id, keys, xtra, beef ); thedoc != nullptr )
+          return player->Override( thedoc );
       }
 
-    // on dynamic index overflow, rotate the last index by creating new one in a new flakes,
-    // and continue Setting attempts
+    // on dynamic index overflow, rotate the last index
       catch ( const index_overflow& /*xo*/ )
       {
-        shlock.unlock();  exlock.lock();
+      // create new entry for dynamic index
+        auto  newptr = std::make_unique<IndexEntry>( player->uUpper + 1, dynamic::Index()
+          .Set( dynSet )
+          .Set( istore->CreateStore() ).Create(), player );
 
-      // received exclusive lock, check if index is already rotated by another
-      // SetEntity call; if yes, try again to SetEntity, else rotate index
-        if ( layers.back().pIndex.ptr() == pindex )
+      // mark as dynamic
+        newptr->uUpper = uint32_t(-1);
+        newptr->dwSets = 1;
+
+      // try rotate index; if already rotated by another thread, continue attempts
+      // to insert entity
+        if ( layers.compare_exchange_strong( player, newptr.get() ) )
         {
-        // rotate the index by creating the commiter for last (dynamic) index
-        // and create the new dynamic index
-          layers.back().uUpper = layers.back().uLower
-            + pindex->GetMaxIndex() - 1;
-
-          layers.back().pIndex = commit::Contents().Create( layers.back().pIndex, [this]( void* to, Notify::Event event )
+        // if replaced, change index to commiter
+          player->uUpper = player->uLower + player->pIndex->GetMaxIndex() - 1;
+          player->pIndex = commit::Contents().Create( player->pIndex, [this]( void* to, Notify::Event event )
             {
               mtc::interlocked( mtc::make_unique_lock( evMutex ), [&]()
                 {  evQueue.emplace_back( to, event );  } );
               evEvent.notify_one();
             } );
-
-          layers.emplace_back( layers.back().uUpper + 1, dynamic::Index()
-            .Set( dynSet )
-            .Set( istore->CreateStore() ).Create() );
-          layers.back().uUpper = (uint32_t)-1;
-          layers.back().dwSets = 1;
+          player = newptr.release();
         }
       }
     }
@@ -262,8 +259,6 @@ namespace layered {
 
   auto  ContentsIndex::SetExtras( EntityId id, const std::string_view& extras ) -> mtc::api<const IEntity>
   {
-    auto  shlock = mtc::make_shared_lock( ixlock );
-
     return setExtras( id, extras );
   }
 
@@ -279,8 +274,6 @@ namespace layered {
 
   auto  ContentsIndex::Commit() -> mtc::api<IStorage::ISerialized>
   {
-    auto  shlock = mtc::make_shared_lock( ixlock );
-
     return commitItems(), nullptr;
   }
 
@@ -291,27 +284,24 @@ namespace layered {
 
   auto  ContentsIndex::GetMaxIndex() const -> uint32_t
   {
-    auto  shlock = mtc::make_shared_lock( ixlock );
-
     return getMaxIndex();
   }
 
   auto  ContentsIndex::GetKeyBlock( const std::string_view& key ) const -> mtc::api<IEntities>
   {
-    return mtc::interlocked( mtc::make_shared_lock( ixlock ), [&]()
-      {  return getKeyBlock( key, this );  } );
+    return getKeyBlock( key, this );
   }
 
   auto  ContentsIndex::GetKeyStats( const std::string_view& key ) const -> BlockInfo
   {
-    return mtc::interlocked( mtc::make_shared_lock( ixlock ), [&]()
-      {  return getKeyStats( key );  } );
+    return getKeyStats( key );
   }
 
   auto  ContentsIndex::ListContents( const std::string_view& key ) -> mtc::api<IContentsList>
   {
-    return listContents( key, MakeObjectHolder( mtc::api( (const Iface*)this ),
-      std::move( mtc::make_shared_lock( ixlock ) ) ) );
+    return listContents( key );
+//    return listContents( key, MakeObjectHolder( mtc::api( (const Iface*)this ),
+//      std::move( mtc::make_shared_lock( ixlock ) ) ) );
   }
 
   void  ContentsIndex::MergeMonitor( const std::chrono::seconds& startDelay )
@@ -326,12 +316,14 @@ namespace layered {
     // and finish index modification
       if ( evNext.first != nullptr && canRun)
       {
-        auto  exlock = mtc::make_unique_lock( ixlock );
-        auto  pfound = std::find_if( layers.begin(), layers.end(), [&]( const IndexEntry& index )
-          {  return index.pIndex.ptr() == evNext.first;  } );
+        auto  toswap = layers.load();
+
+      // search for the event node
+        while ( toswap != nullptr && toswap->pIndex.ptr() != evNext.first )
+          toswap = toswap->pChain.load();
 
       // if the index with key pointer found, check the type of event occured
-        if ( pfound == layers.end() )
+        if ( toswap == nullptr )
           throw std::logic_error( "strange event not attached to any index!" );
 
         switch ( evNext.second )
@@ -339,113 +331,135 @@ namespace layered {
         // On OK, replace the index in the entry to it's reduced version,
         // resort the indices in the size-decreasing order, and renumber
           case Notify::Event::OK:
-          {
-            uint32_t uLower = 1;
-
-            pfound->pIndex = pfound->pIndex->Reduce();
-            pfound->backup.clear();
-            pfound->dwSets = 0;
-
-            std::sort( layers.begin(), layers.end() - 1, []( const IndexEntry& a, const IndexEntry& b )
             {
-              if ( a.dwSets != b.dwSets )
-                return (a.dwSets != 0) > (b.dwSets != 0 );
-              return a.pIndex->GetMaxIndex() > b.pIndex->GetMaxIndex();
-            } );
+              toswap->pIndex = toswap->pIndex->Reduce();
+              toswap->dwSets = 0;
 
-            for ( auto& index: layers )
-              uLower = (index.uUpper = (index.uLower = uLower) + index.pIndex->GetMaxIndex() - 1) + 1;
-
-            layers.back().uUpper = uint32_t(-1);
+            // delete backup chain
+              for ( auto remove = toswap->backup; remove != nullptr; )
+              {
+                auto  delptr = remove;
+                  remove = remove->pChain.load();
+                delete delptr;
+              }
+            }
             break;
-          }
 
         // On Empty, simple remove the existing index because its processing
         // result is empty
           case Notify::Event::Empty:
-            layers.erase( pfound );
+            {
+              auto  ppnext = &layers;
+
+            // search element pointing to removed one
+              while ( (*ppnext).load() != nullptr && (*ppnext).load() != toswap )
+                ppnext = &(*ppnext).load()->pChain;
+
+              if ( (*ppnext).load() == nullptr )
+                throw std::logic_error( "layer to be removed not found" );
+
+            // remove empty element from list
+              if ( !ppnext->compare_exchange_strong( toswap, toswap->pChain.load() ) )
+                throw std::logic_error( "could not remove layer" );
+
+              delete toswap;
+            }
             break;
 
         // On Cancel, rollback the event record to the previous subset
         // of entries saved in the entry processed
           case Notify::Event::Canceled:
-          {
-            auto  backup = std::move( pfound->backup );
+            {
+              auto  ppnext = &layers;
 
-            layers.insert( layers.erase( pfound ),
-              backup.begin(), backup.end() );
+            // search element pointing to removed one
+              while ( ppnext->load() != nullptr && ppnext->load() != toswap )
+                ppnext = &ppnext->load()->pChain;
+
+            // check if element has backup; replace the chain with backup
+              if ( toswap->backup != nullptr )
+              {
+                auto  pplast = &toswap->backup->pChain;
+
+              // search last pointer in backup list
+                while ( pplast->load() != nullptr )
+                  pplast = &pplast->load()->pChain;
+
+              // link last element to next element
+                *pplast = toswap->pChain.load();
+
+              // link previous element to backup list
+                *ppnext = toswap->backup;
+              }
+
+              delete toswap;
+            }
             break;
-          }
 
       // On Failed, commit index and shutdown service if possible
+      // ***
           default:
             break;
         }
       }
 
     // try select indices to be merged
-      if ( canRun )
+    // select the limits, check and select again the limits for merger
+      if ( auto limits = canRun ? SelectLimits() : MergeSet(); !limits.empty() )
       {
-        auto  shlock = mtc::make_shared_lock( ixlock );
-        auto  exlock = mtc::make_unique_lock( ixlock, std::defer_lock );
-        auto  limits = SelectLimits();
-
-      // select the limits, check and select again the limits for merger
-        if ( limits.first != limits.second )
-        {
-          shlock.unlock();  exlock.lock();
-
-          if ( (limits = SelectLimits()).first != limits.second )
-          {
-            auto  xMaker = fusion::Contents()
-              .Set( [this]( void* to, Notify::Event event )
-                {
-                  mtc::interlocked( mtc::make_unique_lock( evMutex ), [&]()
-                    {  evQueue.emplace_back( to, event );  } );
-                  --mergers;
-                    evEvent.notify_one();
-                } )
-//              .Set( canContinue )
-              .Set( istore->CreateStore() );
-
-            for ( auto p = limits.first; p != limits.second; ++p )
+        auto  merger = combine::Contents()
+          .Set( [this]( void* to, Notify::Event event )
             {
-              xMaker.Add( p->pIndex );
-              limits.first->backup.push_back( IndexEntry{ p->uLower, p->pIndex } );
-            }
+              mtc::interlocked( mtc::make_unique_lock( evMutex ), [&]()
+                {  evQueue.emplace_back( to, event );  } );
+              --mergers;
+                evEvent.notify_one();
+            } )
+//              .Set( canContinue )
+          .Set( istore->CreateStore() );
 
-            limits.first->uUpper = limits.first->backup.back().uUpper;
-            limits.first->pIndex = xMaker.Create();
-            limits.first->dwSets = 1;
+      // register indices to be merged
+        for ( auto p = limits.beg; ; )
+        {
+          merger.Add( p->load()->pIndex );
 
-            layers.erase( limits.first + 1, limits.second );
-
-            ++mergers;
-          }
+          if ( p != limits.end )  p = &p->load()->pChain;
+            else break;
         }
+
+        limits.beg->load()->dwSets = 1;
+        limits.beg->load()->uLower = limits.end->load()->uLower;
+        limits.beg->load()->pIndex = merger.Create();
+        limits.beg->load()->backup = limits.beg->load();
+        limits.beg->load()->pChain = limits.end->load()->pChain.load();
+        limits.end->load()->pChain = nullptr;
+
+        ++mergers;
       }
     }
   }
 
  /*
-  * Ищет самую длинную постедовательность самых маленьких индексов. Критерий -
+  * Ищет самую длинную последовательность самых маленьких индексов. Критерий -
   */
-  auto  ContentsIndex::SelectLimits() -> std::pair<LayersIt, LayersIt>
+  auto  ContentsIndex::SelectLimits() -> MergeSet
   {
-    auto  asizes = std::vector<size_t>();
-    auto  select = std::make_pair( layers.end(), layers.end() );
-    float srange;
-    auto  Ranker = [&]( size_t from, size_t to ) -> float
+    using SizeVector = std::vector<std::pair<AtoIndex*, size_t>>;
+
+    auto  asizes = SizeVector();
+    auto  select = MergeSet();
+    float srange = -1.0;
+    auto  Ranker = [&]( SizeVector::const_iterator from, SizeVector::const_iterator to ) -> float
     {
       auto  min_size = size_t(-1);
       auto  max_size = size_t(0);
       auto  med_size = size_t(0);
 
-      for ( auto i = from; i != to; ++i )
+      for ( auto it = from; it <= to; ++it )
       {
-        min_size = std::min( min_size, asizes[i] );
-        max_size = std::max( max_size, asizes[i] );
-        med_size += asizes[i];
+        min_size = std::min( min_size, it->second );
+        max_size = std::max( max_size, it->second );
+        med_size += it->second;
       }
       med_size /= (to - from);
 
@@ -459,24 +473,21 @@ namespace layered {
     if ( mergers.load() >= max_merge_threads )
       return select;
 
-    for ( auto& next: layers )
-      asizes.push_back( next.dwSets == 0 ? next.pIndex->GetMaxIndex() : 0 );
+  // собрать статистику по размерам индексов по всему списку
+    for ( auto ppnext = &layers; ppnext->load() != nullptr; ppnext = &ppnext->load()->pChain )
+      asizes.push_back( { ppnext, ppnext->load()->dwSets == 0 ? ppnext->load()->pIndex->GetMaxIndex() : 0 } );
 
-    for ( size_t from = 0; from != asizes.size(); ++from )
-      if ( asizes[from] != 0 )
-        for ( size_t to = from + 1; to <= asizes.size() && asizes[to - 1] != 0; ++to )
-          if ( to - from > 1 )
+  // выбрать самый весомый по мнению Ranker()
+    for ( auto from = asizes.begin(); from != asizes.end(); ++from )
+      if ( from->second != 0 )
+      {
+        for ( auto to = from + 1; to != asizes.end() && to->second != 0; ++to )
+          if ( auto crange = Ranker( from, to ); crange >= srange )
           {
-            float crange = Ranker( from, to );
-
-            if ( select.first == select.second
-              || crange > srange
-              || ((crange > srange) - (crange < srange) == 0 && size_t(to - from) > size_t(select.second - select.first)) )
-            {
-              select = { layers.begin() + from, layers.begin() + to };
-              srange = crange;
-            }
+            select = { from->first, to->first };
+            srange = crange;
           }
+      }
     return select;
   }
 
@@ -504,9 +515,9 @@ namespace layered {
   {
     auto  itnext = mtc::api<IEntitiesList>{};
 
-    for ( auto& next: parent->layers )
-      if ( (itnext = next.pIndex->ListEntities( 0U )) != nullptr )
-        refers.push_back( { next.uLower, next.uUpper, itnext } );
+    for ( auto layer = parent->layers.load(); layer != nullptr; layer = layer->pChain.load() )
+      if ( (itnext = layer->pIndex->ListEntities( 0U )) != nullptr )
+        refers.push_front( { layer->uLower, layer->uUpper, layer->banned, itnext } );
 
     refptr = refers.begin();
   }
@@ -548,9 +559,9 @@ namespace layered {
     auto  itnext = mtc::api<IEntitiesList>();
     auto  getdoc = mtc::api<const IEntity>();
 
-    for ( auto& next: parent->layers )
-      if ( (itnext = next.pIndex->ListEntities( first )) != nullptr && (getdoc = itnext->Curr()) != nullptr )
-        refers.push_back( { next.uLower, next.uUpper, itnext, getdoc, getdoc->GetId() } );
+    for ( auto layer = parent->layers.load(); layer != nullptr; layer = layer->pChain.load() )
+      if ( (itnext = layer->pIndex->ListEntities( first )) != nullptr && (getdoc = itnext->Curr()) != nullptr )
+        refers.push_front( { layer->uLower, layer->uUpper, layer->banned, itnext, getdoc, getdoc->GetId() } );
   }
 
   auto  ContentsIndex::EntityIteratorById::Curr() -> mtc::api<const IEntity>

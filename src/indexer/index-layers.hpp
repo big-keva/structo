@@ -21,6 +21,9 @@ namespace indexer {
   * Ротацию таких массивов при переполнении будет обеспечивать другой
   * компонент.
   */
+  using BanMap = std::vector<uint32_t>;
+  using BanPtr = std::shared_ptr<BanMap>;
+
   class IndexLayers
   {
     class Entities;
@@ -51,16 +54,20 @@ namespace indexer {
   protected:
     struct IndexEntry
     {
+      std::atomic<IndexEntry*>  pChain;
       uint32_t                  uLower;
       uint32_t                  uUpper;
       mtc::api<IContentsIndex>  pIndex;
-      std::vector<IndexEntry>   backup;
+      IndexEntry*               backup = nullptr;
+      BanPtr                    banned;
       uint32_t                  dwSets = 0;
 
+    protected:
+      IndexEntry( const IndexEntry& ) = delete;
+      IndexEntry& operator=( const IndexEntry& ) = delete;
+
     public:
-      IndexEntry( uint32_t uLower, mtc::api<IContentsIndex> pindex );
-      IndexEntry( const IndexEntry& );
-      IndexEntry& operator=( const IndexEntry& );
+      IndexEntry( uint32_t uLower, mtc::api<IContentsIndex> pindex, IndexEntry* pchain = nullptr );
 
     public:
       auto  Override( mtc::api<const IEntity> ) const -> mtc::api<const IEntity>;
@@ -70,7 +77,7 @@ namespace indexer {
     class ContentsList;
 
   protected:
-    std::vector<IndexEntry> layers;
+    std::atomic<IndexEntry*>  layers = nullptr;
 
   };
 

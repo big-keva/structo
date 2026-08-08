@@ -12,7 +12,7 @@ int   MergeIndices(
 {
   try
   {
-    indexer::fusion::ContentsMerger()
+    indexer::combine::ContentsMerger()
       .Set( output )
       .Set( sources )();
     output->Commit();
