@@ -1,8 +1,16 @@
 # include "contents-index-merger.hpp"
 # include "dynamic-entities.hpp"
+# include "serialize-cache.hpp"
 # include "../../compat.hpp"
 # include <mtc/radix-tree.hpp>
 # include <stdexcept>
+
+template<> inline
+structo::indexer::SerializeCache<mtc::IByteStream, 0x10000>*
+  Serialize( structo::indexer::SerializeCache<mtc::IByteStream, 0x10000>* o, const void* p, size_t l )
+{
+  return o != nullptr ? o->put( p, l ) : nullptr;
+}
 
 namespace structo {
 namespace indexer {
@@ -127,6 +135,7 @@ namespace fusion {
     const std::vector<MapEntities>& blocks ) -> BlockInfo
   {
     auto      points = std::vector<DocAnchor>();
+    auto      serial = SerializeCache<mtc::IByteStream, 0x10000>( output.ptr() );
     uint64_t  length = 0;
     uint32_t  uOldId = 0;
     DocAnchor daPrev = { 0, 0 };
@@ -162,7 +171,7 @@ namespace fusion {
 
     // serialize next difference
       doclen = SerializeEntity( docbuf, diffId, nbytes ) - docbuf;
-        ::Serialize( ::Serialize( output.ptr(), docbuf, doclen ), reference.details.data(), nbytes );
+        ::Serialize( ::Serialize( serial.ptr(), docbuf, doclen ), reference.details.data(), nbytes );
 
       length += nbytes + doclen;
       cbPart += nbytes + doclen;
@@ -189,12 +198,12 @@ namespace fusion {
         next.lastId - daPrev.lastId ),
         next.offset - daPrev.offset ) - docbuf;
 
-      ::Serialize( output.ptr(), docbuf, doclen );
+      ::Serialize( serial.ptr(), docbuf, doclen );
         cbPart += doclen;
         daPrev = next;
     }
 
-    return { uint32_t(buffer.size()), length, cbPart };
+    return serial.end(), BlockInfo{ uint32_t(buffer.size()), length, cbPart };
   }
 
   void  ContentsMerger::MergeEntities()
