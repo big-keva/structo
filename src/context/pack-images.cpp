@@ -15,6 +15,17 @@ namespace structo {
 namespace context {
 namespace imaging {
 
+  inline  uint32_t  AlignSize( uint32_t count )
+  {
+    --count;
+      count |= (count >> 1);
+      count |= (count >> 2);
+      count |= (count >> 4);
+      count |= (count >> 8);
+      count |= (count >> 16);
+    return ++count;
+  }
+
   template <class CharType>
   class TextBuffer: protected std::vector<CharType>
   {
@@ -35,15 +46,14 @@ namespace imaging {
   {
     struct StrRef
     {
-      StrRef*          pnext;
       const TextToken* token;
+      unsigned         uhash;
       unsigned         where;
     };
 
-    std::vector<StrRef*>  refHashMap;
-    std::vector<StrRef>   strRefBuff;
-    StrRef*               strRefFill;
-    TextBuffer<char>      textBuffer;
+    std::vector<StrRef> refHashMap;
+    StrRef*             refHashOrg;
+    TextBuffer<char>    textBuffer;
 
   public:
     enum: unsigned
@@ -57,29 +67,25 @@ namespace imaging {
     };
 
     WordsEncoder( unsigned length ):
-      refHashMap(
-        length < 2003 ? 3001 :
-        length < 8009 ? 12007 :
-        length < 16001 ? 20011 :
-        length < 28001 ? 32003 :
-        length < 55001 ? 60013 : 90031 ),
-      strRefBuff( length ),
-      strRefFill( strRefBuff.data() )
+      refHashMap( AlignSize( (length + 3) * 5 / 4 ) ),
+      refHashOrg( refHashMap.data() )
     {
     }
 
     template <class O>
     auto  EncodeWord( O* o, const TextToken& t, unsigned p ) -> O*
     {
-      auto  dwhash = t.IsRational() ? std::hash<double>()( t.dvalue ) :
-        std::hash<std::basic_string_view<widechar>>{}( t.GetWideStr() );
-      auto  refPos = dwhash % refHashMap.size();
-      auto  ptrRef = refHashMap[refPos];
+      auto  dwhash = unsigned(t.IsRational() ? std::hash<double>()( t.dvalue ) :
+        std::hash<std::basic_string_view<widechar>>{}( t.GetWideStr() ));
+      auto  dwmask = refHashMap.size() - 1;
+      auto  hindex = dwhash & dwmask;
+      auto  ptrRef = refHashOrg + hindex;
 
-      while ( ptrRef != nullptr && *ptrRef->token != t )
-        ptrRef = ptrRef->pnext;
+      while ( ptrRef->token != nullptr && (ptrRef->uhash != dwhash || *ptrRef->token != t) )
+        ptrRef = refHashOrg + (hindex = (hindex + 1) & dwmask);
 
-      if ( ptrRef != nullptr )
+    // check if word already exists, register reference to it
+      if ( ptrRef->token != nullptr )
       {
         auto  asOffs = AsOffs( t, ptrRef->where );
         auto  asDiff = AsDiff( t, p - ptrRef->where );
@@ -93,6 +99,10 @@ namespace imaging {
         return ptrRef->where = p, ::Serialize( o, asDiff );
       }
 
+    // else remember a word reference
+      *ptrRef = { &t, dwhash, p };
+
+    // and store word representation
       if ( t.IsRational() )
       {
         o = ::Serialize( ::Serialize( o, (t.uFlags & 0x07) | of_numeric ),
@@ -115,7 +125,6 @@ namespace imaging {
         o = ::Serialize( ::Serialize( o, AsUtf8( t, cchenc ) ), encode, cchenc );
       }
 
-      refHashMap[refPos] = new( strRefFill++ ) StrRef{ refHashMap[refPos], &t, p };
       return o;
     }
 
