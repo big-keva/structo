@@ -176,7 +176,14 @@ namespace structo
     */
     virtual auto  GetMaxIndex() const -> uint32_t = 0;
 
-   /*
+    /*
+    * StashEntity( EntityId )
+    *
+    * Делает объект невидимым до конца сессии.
+    */
+    virtual void  StashEntity( EntityId ) = 0;
+
+    /*
     * Blocks search api
     */
     virtual auto  GetKeyBlock( const std::string_view& ) const -> mtc::api<IEntities> = 0;
@@ -189,6 +196,7 @@ namespace structo
     virtual auto  ListEntities( uint32_t ) -> mtc::api<IEntitiesList> = 0;
 
     virtual auto  ListContents( const std::string_view& = {} ) -> mtc::api<IContentsList> = 0;
+
    /*
     * Commit()
     *

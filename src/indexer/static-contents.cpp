@@ -42,6 +42,8 @@ namespace static_ {
       const std::string_view&, const std::string_view& ) -> mtc::api<const IEntity> override;
     auto  SetExtras( EntityId, const std::string_view& ) -> mtc::api<const IEntity> override;
 
+    void  StashEntity( EntityId ) override;
+
     auto  GetMaxIndex() const -> uint32_t override
       {  return entities.GetEntityCount();  }
 
@@ -273,6 +275,14 @@ namespace static_ {
         Override::Entity( getdoc.ptr() ).Extra( ppatch ) : getdoc.ptr();
     }
     return nullptr;
+  }
+
+  void  ContentsIndex::StashEntity( EntityId id )
+  {
+    auto  getdoc = entities.GetEntity( id );
+
+    if ( getdoc != nullptr && !shadowed.Get( getdoc->index ) )
+      shadowed.Set( getdoc->index );
   }
 
   auto  ContentsIndex::GetKeyBlock( const std::string_view& key ) const -> mtc::api<IEntities>

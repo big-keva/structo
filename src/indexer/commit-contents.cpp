@@ -17,6 +17,12 @@ namespace commit  {
   {
     using ISerialized = IStorage::ISerialized;
 
+    struct StashKey
+    {
+      std::string hide;
+      StashKey*   next = nullptr;
+    };
+
     implement_lifetime_control
 
   public:
@@ -36,6 +42,8 @@ namespace commit  {
     auto  SetExtras( EntityId,
       const std::string_view& ) -> mtc::api<const IEntity> override;
 
+    void  StashEntity( EntityId ) override;
+
     auto  GetMaxIndex() const -> uint32_t override;
     auto  GetKeyBlock( const std::string_view& ) const -> mtc::api<IEntities> override;
     auto  GetKeyStats( const std::string_view& ) const -> BlockInfo override;
@@ -53,7 +61,7 @@ namespace commit  {
   protected:
     void  CommitThreadFunc();
 
-  protected:
+  private:
     mutable std::shared_mutex     swLock;   // switch mutex
     mtc::api<IContentsIndex>      source;
     mtc::api<IContentsIndex>      output;
@@ -66,8 +74,10 @@ namespace commit  {
     Bitmap<>                      banset;
     mutable PatchTable<>          hpatch;
 
-    std::thread                   commit;
+    std::thread                   thread;
     std::exception_ptr            except;
+
+    std::atomic<StashKey*>        toHide = nullptr;
 
   };
 
@@ -81,13 +91,17 @@ namespace commit  {
 
   ContentsIndex::~ContentsIndex()
   {
-    if ( commit.joinable() )
-      commit.join();
+    if ( thread.joinable() )
+      thread.join();
+
+  // delete stashed entities
+    for ( auto p = toHide.load(), d = p; p != nullptr; p = p->next, delete d )
+      (void)NULL;
   }
 
   auto  ContentsIndex::StartCommit() -> mtc::api<IContentsIndex>
   {
-    commit = std::thread( &ContentsIndex::CommitThreadFunc, this );
+    thread = std::thread( &ContentsIndex::CommitThreadFunc, this );
     return this;
   }
 
@@ -106,6 +120,10 @@ namespace commit  {
       hpatch.Commit( serial = target );
         source = nullptr;
       output = static_::Index().Create( serial = target );
+
+    // apply stashed keys
+      for ( auto pstash = toHide.load(); pstash != nullptr; pstash = pstash->next )
+        output->StashEntity( pstash->hide );
 
     // notify commit finished
       s_wait.notify_all();
@@ -225,6 +243,24 @@ namespace commit  {
     return output->SetExtras( id, xtra );
   }
 
+  void  ContentsIndex::StashEntity( EntityId id )
+  {
+    auto  shlock = mtc::make_shared_lock( swLock );
+
+    if ( except != nullptr )
+      std::rethrow_exception( except );
+
+    if ( output != nullptr )
+      return output->StashEntity( id );
+
+    if ( auto entity = source->GetEntity( id ); entity != nullptr )
+    {
+      for ( auto pstash = new StashKey{ std::string( id ), toHide.load() };
+        !toHide.compare_exchange_strong( pstash->next, pstash ); )  (void)NULL;
+      source->StashEntity( id );
+    }
+  }
+
   auto  ContentsIndex::GetMaxIndex() const -> uint32_t
   {
     auto  shlock = mtc::make_shared_lock( swLock );
@@ -282,8 +318,8 @@ namespace commit  {
   auto  ContentsIndex::Reduce() -> mtc::api<IContentsIndex>
   {
   // wait until the commit completes
-    if ( commit.joinable() )
-      commit.join();
+    if ( thread.joinable() )
+      thread.join();
 
     if ( except != nullptr )
       std::rethrow_exception( except );

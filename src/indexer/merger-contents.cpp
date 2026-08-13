@@ -19,6 +19,12 @@ namespace fusion  {
   {
     using ISerialized = IStorage::ISerialized;
 
+    struct StashKey
+    {
+      std::string hide;
+      StashKey*   next = nullptr;
+    };
+
     implement_lifetime_control
 
   public:
@@ -40,6 +46,8 @@ namespace fusion  {
       const std::string_view&, const std::string_view& ) -> mtc::api<const IEntity> override;
     auto  SetExtras( EntityId,
       const std::string_view& ) -> mtc::api<const IEntity> override;
+
+    void  StashEntity( EntityId ) override;
 
     auto  GetMaxIndex() const -> uint32_t override;
     auto  GetKeyBlock( const std::string_view& ) const -> mtc::api<IEntities> override;
@@ -74,6 +82,8 @@ namespace fusion  {
     std::thread                   thread;
     std::exception_ptr            except;
 
+    std::atomic<StashKey*>        toHide = nullptr;
+
   };
 
   // ContentsIndex implementation
@@ -91,6 +101,10 @@ namespace fusion  {
   {
     if ( thread.joinable() )
       thread.join();
+
+    // delete stashed entities
+    for ( auto p = toHide.load(), d = p; p != nullptr; p = p->next, delete d )
+      (void)NULL;
   }
 
   auto  ContentsIndex::StartMerger() -> mtc::api<IContentsIndex>
@@ -113,6 +127,10 @@ namespace fusion  {
     // serialize accumulated changes, dispose old index and open new static
       hpatch.Commit( serial = target );
       output = static_::Index().Create( serial = target );
+
+    // apply stashed keys
+      for ( auto pstash = toHide.load(); pstash != nullptr; pstash = pstash->next )
+        output->StashEntity( pstash->hide );
 
       for ( auto& next: layers )
         next.pIndex->Remove();
@@ -234,6 +252,23 @@ namespace fusion  {
         GetEntity( id ) : nullptr;
     }
     return output->SetExtras( id, xtra );
+  }
+
+  void  ContentsIndex::StashEntity( EntityId id )
+  {
+    auto  shlock = mtc::make_shared_lock( swLock );
+
+    if ( except != nullptr )
+      std::rethrow_exception( except );
+
+    if ( output != nullptr )
+      return output->StashEntity( id );
+
+    for ( auto& layer: layers )
+      layer.pIndex->StashEntity( id );
+
+    for ( auto pstash = new StashKey{ std::string( id ), toHide.load() };
+      !toHide.compare_exchange_strong( pstash->next, pstash ); )  (void)NULL;
   }
 
   auto  ContentsIndex::GetMaxIndex() const -> uint32_t
