@@ -62,6 +62,16 @@ namespace context {
     void  MapMarkup( mtc::span<MarkupTag>,
       const mtc::span<const TextToken>& ) const;
     auto  Normalize( DeliriX::Text&, const DeliriX::ITextView& ) const -> const DeliriX::ITextView*;
+    auto  AlignSize( uint32_t count ) const
+    {
+      --count;
+        count |= (count >> 1);
+        count |= (count >> 2);
+        count |= (count >> 4);
+        count |= (count >> 8);
+        count |= (count >> 16);
+      return ++count;
+    }
 
   protected:
     std::vector<Lemmatizer>  languages;
@@ -118,18 +128,32 @@ namespace context {
   {
     struct StrRef
     {
-      StrRef*           pnext;
-      const TextToken*  pword;
-      unsigned          index;
+      union
+      {
+        double          value;    // double value
+        const widechar* token;    // string pointer
+      };
+      unsigned          chars;    // string length or -1 for doubles
+      unsigned          hcode;    // cached hash code
+      unsigned          index;    // place
+
+      StrRef() = default;
+      StrRef( double v, unsigned h, unsigned i ):
+        value( v ), chars( -1 ), hcode( h ), index( i ) {}
+      StrRef( wide_string_view s, unsigned h, unsigned i ):
+        token( s.data() ), chars( s.size() ), hcode( h ), index( i ) {}
+      bool  operator != ( const TextToken& to ) const
+      {
+        if ( to.IsRational() )
+          return chars == unsigned(-1) ? (value > to.dvalue) != (value < to.dvalue) : false;
+        else
+          return chars != unsigned(-1) ? wide_string_view{ token, size_t(chars) } != to.GetWideStr() : false;
+      }
     };
-    std::vector<StrRef>   items( image.tokens.size() );
-    StrRef*               plast = items.data();
-    std::vector<StrRef*>  itMap(
-      image.tokens.size() < 2003 ? 3001 :
-      image.tokens.size() < 8009 ? 12007 :
-      image.tokens.size() < 16001 ? 20011 :
-      image.tokens.size() < 28001 ? 32003 :
-      image.tokens.size() < 55001 ? 60013 : 90031 );
+    auto    hsize = AlignSize( (image.tokens.size() + 3) * 3 / 2 );
+    auto    table = std::vector<StrRef>( hsize );
+    auto    tdata = table.data();
+    auto    tmask = hsize - 1;
 
     image.lemmas.clear();
     image.lemmas.resize( image.tokens.size() );
@@ -139,16 +163,17 @@ namespace context {
     for ( size_t i = 0; i < image.tokens.size(); i++ )
     {
       auto& rfword = image.tokens[i];
-      auto  dwhash = rfword.IsRational() ? std::hash<double>()( rfword.dvalue ) :
-        std::hash<std::basic_string_view<widechar>>()( rfword.GetWideStr() );
-      auto  hindex = dwhash % itMap.size();
-      auto  pfound = itMap[hindex];
+      auto  dwhash = unsigned(rfword.IsRational() ? std::hash<double>()( rfword.dvalue ) :
+        std::hash<std::basic_string_view<widechar>>()( rfword.GetWideStr() ));
+      auto  hindex = dwhash & (hsize - 1);
+      auto  pentry = tdata + hindex;
+
+    // find place for a word
+      while ( pentry->chars != 0 && (pentry->hcode != dwhash || *pentry != rfword) )
+        pentry = tdata + (hindex = ((hindex + 1) & tmask));
 
     // search for already lemmatized token
-      while ( pfound != nullptr && *pfound->pword != rfword )
-        pfound = pfound->pnext;
-
-      if ( pfound == nullptr )
+      if ( pentry->chars == 0 )
       {
         auto  curlen = image.lexbuf.size();
 
@@ -157,18 +182,23 @@ namespace context {
         else
           Lemmatize( image.lexbuf, rfword.GetWideStr() );
 
-        new( &image.lemmas[i] ) mtc::span<Lexeme>( (Lexeme*)curlen,
+        image.lemmas[i] = mtc::span<const Lexeme>( (Lexeme*)curlen,
           image.lexbuf.size() - curlen );
 
-        itMap[hindex] = new( plast++ ) StrRef{ itMap[hindex], &rfword, unsigned(i) };
+        if ( rfword.IsRational() )
+          *pentry = { rfword.dvalue, dwhash, unsigned(i) };
+        else
+          *pentry = StrRef( rfword.GetWideStr(), dwhash, unsigned(i) );
       }
         else
-      image.lemmas[i] = image.lemmas[pfound->index];
+      image.lemmas[i] = image.lemmas[pentry->index];
     }
 
   // transform indexes to pointers
+    auto  lexorg = image.lexbuf.data();
+
     for ( auto& l: image.lemmas )
-      l = { image.lexbuf.data() + size_t(l.data()), l.size() };
+      l = { lexorg + size_t(l.data()), l.size() };
 
     return image;
   }
