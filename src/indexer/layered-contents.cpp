@@ -11,6 +11,7 @@
 # include <mtc/recursive_shared_mutex.hpp>
 # include <shared_mutex>
 # include <cmath>
+#include <mtc/bitset.h>
 
 namespace structo {
 namespace indexer {
@@ -42,6 +43,8 @@ namespace layered {
     auto  SetEntity( EntityId, const mtc::span<const EntryView>&,
       const std::string_view&, const std::string_view& ) -> mtc::api<const IEntity> override;
     auto  SetExtras( EntityId, const std::string_view& ) -> mtc::api<const IEntity> override;
+
+    void  StashEntity( EntityId ) override;
 
     auto  GetMaxIndex() const -> uint32_t override;
     auto  GetKeyBlock( const std::string_view& ) const -> mtc::api<IEntities> override;
@@ -79,6 +82,8 @@ namespace layered {
     std::condition_variable     evEvent;
     std::thread                 monitor;
     std::atomic_long            mergers = 0;
+    std::vector<uint64_t>       docHash;
+    size_t                      hashLen = 1024 * 1024;   // billion entities
   };
 
   class ContentsIndex::EntityIteratorByIx final: public IEntitiesList
@@ -222,8 +227,18 @@ namespace layered {
       try
       {
         if ( (thedoc = pindex->SetEntity( id, keys, xtra, beef )) != nullptr )
-          for ( auto beg = layers.begin(); beg + 1 != layers.end(); ++beg )
-            beg->pIndex->DelEntity( id );
+        {
+          auto  dwhash = std::hash<std::string_view>()( id );
+          auto  hindex = dwhash & (hashLen - 1);
+
+          if ( mtc::bitset_get( docHash, hindex ) )
+          {
+            for ( auto beg = layers.begin(); beg + 1 != layers.end(); ++beg )
+              beg->pIndex->DelEntity( id );
+          }
+            else
+          mtc::bitset_set( docHash, hindex );
+        }
 
         return layers.back().Override( thedoc );
       }
@@ -287,6 +302,11 @@ namespace layered {
   void  ContentsIndex::Remove()
   {
     throw std::runtime_error( "not implemented @" __FILE__ ":" LINE_STRING );
+  }
+
+  void  ContentsIndex::StashEntity( EntityId )
+  {
+    throw std::logic_error( "must not be called @" __FILE__ ":" LINE_STRING );
   }
 
   auto  ContentsIndex::GetMaxIndex() const -> uint32_t
