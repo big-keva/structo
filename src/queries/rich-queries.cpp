@@ -357,6 +357,8 @@ namespace queries {
       datatype( rt.datatype ),
       tmRanker( rt.tmRanker )
   {
+    if ( entBlock == nullptr )
+      throw uninitialized_exception( "empty query term" );
   }
 
   RichQueryTerm::RichQueryTerm( mtc::api<IEntities> ft, mtc::api<IEntities> bk, const TermRanker& tr ):
