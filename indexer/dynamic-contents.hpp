@@ -9,11 +9,11 @@ namespace dynamic {
   struct Settings
   {
     uint32_t  maxEntities = 60000;                /* */
-    uint32_t  maxAllocate = 256 * 1024 * 1024;    /* 256 meg */
+    uint64_t  maxAllocate = 256 * 1024 * 1024;    /* 256 meg */
 
   public:
     auto  SetMaxEntities( uint32_t value ) -> Settings& {  maxEntities = value; return *this;  }
-    auto  SetMaxAllocate( uint32_t value ) -> Settings& {  maxAllocate = value; return *this;  }
+    auto  SetMaxAllocate( uint64_t value ) -> Settings& {  maxAllocate = value; return *this;  }
   };
 
   class Index

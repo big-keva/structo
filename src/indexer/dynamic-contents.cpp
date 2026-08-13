@@ -26,7 +26,7 @@ namespace dynamic {
   public:
     ContentsIndex(
       uint32_t maxEntities,
-      uint32_t maxAllocate, mtc::api<IStorage::IIndexStore> outputStorage );
+      uint64_t maxAllocate, mtc::api<IStorage::IIndexStore> outputStorage );
    ~ContentsIndex() {  contents.StopIt();  }
 
   public:
@@ -38,6 +38,8 @@ namespace dynamic {
       const std::string_view&, const std::string_view& ) -> mtc::api<const IEntity> override;
     auto  SetExtras( EntityId,
       const std::string_view& ) -> mtc::api<const IEntity> override;
+
+    void  StashEntity( EntityId ) override;
 
     auto  GetMaxIndex() const -> uint32_t override  {  return entities.GetEntityCount();  }
     auto  GetKeyBlock( const std::string_view& ) const -> mtc::api<IEntities> override;
@@ -52,7 +54,7 @@ namespace dynamic {
     void  Remove() override;
 
   protected:
-    const uint32_t                  memLimit;
+    const uint64_t                  memLimit;
     mtc::Arena                      memArena;
 
     mtc::api<IStorage::IIndexStore> pStorage;
@@ -170,7 +172,7 @@ namespace dynamic {
 
   // ContentsIndex implementation
 
-  ContentsIndex::ContentsIndex( uint32_t maxEntities, uint32_t maxAllocate, mtc::api<IStorage::IIndexStore> storageSink  ):
+  ContentsIndex::ContentsIndex( uint32_t maxEntities, uint64_t maxAllocate, mtc::api<IStorage::IIndexStore> storageSink  ):
     memLimit( maxAllocate ),
     pStorage( storageSink ),
     entities( *memArena.Create<EntTable>( maxEntities, this, pStorage != nullptr ? pStorage->Packages() : nullptr ) ),
@@ -232,6 +234,12 @@ namespace dynamic {
   auto  ContentsIndex::SetExtras( EntityId id, const std::string_view& extras ) -> mtc::api<const IEntity>
   {
     return entities.SetExtras( id, extras ).ptr();
+  }
+
+  void  ContentsIndex::StashEntity( EntityId id )
+  {
+    if ( uint32_t del_id = entities.DelEntity( id ); del_id != (uint32_t)-1 )
+      shadowed.Set( del_id );
   }
 
   auto  ContentsIndex::GetKeyBlock( const std::string_view& key ) const -> mtc::api<IEntities>
