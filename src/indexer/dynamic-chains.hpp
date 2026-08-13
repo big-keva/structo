@@ -3,6 +3,7 @@
 # include "../../contents.hpp"
 # include "../../compat.hpp"
 # include "dynamic-chains-ringbuffer.hpp"
+# include "serialize-cache.hpp"
 # include "dynamic-bitmap.hpp"
 # include "strmatch.hpp"
 # include <mtc/recursive_shared_mutex.hpp>
@@ -11,13 +12,20 @@
 # include <thread>
 # include <atomic>
 
+template <> inline
+structo::indexer::SerializeCache<mtc::IByteStream, 0x10000>*
+  Serialize( structo::indexer::SerializeCache<mtc::IByteStream, 0x10000>* o, const void* p, size_t l )
+{
+  return o != nullptr ? o->put(p, l) : nullptr;
+}
+
 namespace structo {
 namespace indexer {
 namespace dynamic {
 
   enum: size_t
   {
-    ring_buffer_size = 0x1000
+    ring_buffer_size = 0x10000
   };
 
   template <class Allocator = std::allocator<char>>
@@ -34,7 +42,7 @@ namespace dynamic {
 
     enum: size_t
     {
-      hash_table_size = 65521
+      hash_table_size = 0x10000
     };
 
   /*
@@ -175,7 +183,7 @@ namespace dynamic {
     RingBuffer<ChainHook*, ring_buffer_size>  keysQueue;    // queue for keys indexing
     std::condition_variable_any               keySyncro;    // syncro for shadow indexing keys
     std::thread                               keyThread;    // shadow keys indexer
-    volatile bool                             runThread = false;
+    std::atomic_bool                          runThread = false;
 
   };
 
@@ -231,7 +239,7 @@ namespace dynamic {
   void  BlockChains<Allocator>::Insert( const std::string_view& key, uint32_t entity, const std::string_view& block, unsigned bkType )
   {
     auto  nhcode = std::hash<std::string_view>()( key );
-    auto  hindex = nhcode % hashTable.size();
+    auto  hindex = nhcode & (hash_table_size - 1);
     auto& hentry = hashTable[hindex];
     auto  hvalue = mtc::ptr::clean( hentry.load( std::memory_order_acquire ) );
 
@@ -310,12 +318,20 @@ namespace dynamic {
   {
     if ( keyThread.joinable() )
     {
-      while ( !runThread )
+      ChainHook* pchain;
+
+    // ensure indexer started...
+      while ( !runThread.load( std::memory_order_acquire ) )
         std::this_thread::sleep_for( std::chrono::milliseconds( 10 ) );
 
+    // ... and finished
       runThread = false;
       keySyncro.notify_one();
       keyThread.join();
+
+    // ... and all the keys are indexed
+      while ( keysQueue.Get( pchain ) )
+        radixTree.Insert( { pchain->data(), pchain->cchkey }, { pchain, 0, 0 } );
     }
     return *this;
   }
@@ -381,6 +397,10 @@ namespace dynamic {
   auto  BlockChains<Allocator>::Serialize( O1* index, O2* chain ) -> uint64_t
   {
     uint64_t  offset = 0;
+    auto      xcache = SerializeCache<O1, 0x10000>( index );
+    auto      ccache = SerializeCache<O2, 0x10000>( chain );
+    auto      xstore = xcache.ptr();
+    auto      cstore = ccache.ptr();
 
 # if defined( VERIFY_KEY_COUNT )
     // для уверенности в том, что KeysIndexer ничего не промотал, проверить совпадение количества
@@ -395,49 +415,61 @@ namespace dynamic {
 # endif   // VERIFY_KEY_COUNT
 
   // store all the index chains saving offset, count and length to the tree
-    for ( auto next = radixTree.begin(), stop = radixTree.end(); next != stop && chain != nullptr; ++next )
-    {
-      auto    lastId = uint32_t(0);
-      auto    length = uint32_t(0);
-      char    docbuf[0x20];
-      size_t  doclen;
-
-      next->value.blockOffset = offset;
-
-    // store block according to block type:
-    //  * blocks without coordinates;
-    //  * blocks with coordinates
-      if ( next->value.blocksChain->bkType == 0 )
+    radixTree.for_each( [&]( const mtc::radix::key&, RadixLink& block )
       {
-        for ( auto p = next->value.blocksChain->pfirst.load(); p != nullptr; p = p->p_next.load() )
-          if ( p->entity != uint32_t(-1) )
+        auto    lastId = uint32_t(0);
+        auto    length = uint32_t(0);
+        char    docbuf[0x20];
+        size_t  doclen;
+
+        block.blockOffset = offset;
+
+      // store block according to block type:
+      //  * blocks without coordinates;
+      //  * blocks with coordinates
+        if ( block.blocksChain->bkType == 0 )
+        {
+          auto  p = block.blocksChain->pfirst.load( std::memory_order_relaxed );
+
+          while ( p != nullptr )
           {
-            doclen = ::Serialize( docbuf, p->entity - lastId - 1 ) - docbuf;
-              length += doclen;
-            chain = ::Serialize( chain, docbuf, doclen );
+            if ( p->entity != uint32_t(-1) )
+            {
+              doclen = ::Serialize( docbuf, p->entity - lastId - 1 ) - docbuf;
+                length += doclen;
+              cstore = ::Serialize( cstore, docbuf, doclen );
+                lastId = p->entity;
+            }
+
+            p = p->p_next.load( std::memory_order_relaxed );
+          }
+        }
+          else
+        {
+          auto  p = block.blocksChain->pfirst.load( std::memory_order_relaxed );
+
+          while ( p != nullptr )
+          {
+            if ( p->entity != uint32_t(-1) )
+            {
+              doclen = ::Serialize( ::Serialize( docbuf, p->entity - lastId - 1 ), p->lblock ) - docbuf;
+                length += doclen + p->lblock;
+              cstore = ::Serialize( ::Serialize( cstore,
+                docbuf, doclen ), p->data(), p->lblock );
               lastId = p->entity;
+            }
+
+            p = p->p_next.load( std::memory_order_relaxed );
           }
-      }
-        else
-      {
-        for ( auto p = next->value.blocksChain->pfirst.load(); p != nullptr; p = p->p_next.load() )
-          if ( p->entity != uint32_t(-1) )
-          {
-            doclen = ::Serialize( ::Serialize( docbuf, p->entity - lastId - 1 ), p->lblock ) - docbuf;
-              length += doclen + p->lblock;
-            chain = ::Serialize( ::Serialize( chain,
-              docbuf, doclen ), p->data(), p->lblock );
-            lastId = p->entity;
-          }
-      }
-      offset += (next->value.blockLength = length);
-    }
+        }
+        offset += (block.blockLength = length);
+      } );
 
   // store radix tree
-    if ( chain == nullptr )
+    if ( cstore->end() == nullptr )
       return uint64_t(-1);
 
-    if ( (index = radixTree.Serialize( index )) == nullptr )
+    if ( radixTree.Serialize( xstore )->end() == nullptr )
       return uint64_t(-1);
 
     return offset;
@@ -521,9 +553,9 @@ namespace dynamic {
     {
       auto  stopat = pindex.load( std::memory_order_relaxed );
 
-      for ( auto  uindex = stopat - 1; (uindex % 32) != (stopat % 32) && points[uindex % 32] != nullptr; --uindex )
-        if ( points[uindex % 32]->load( std::memory_order_acquire )->entity < entity )
-          {  (pstore = points[uindex % 32])->load();  break;  }
+      for ( auto  uindex = stopat - 1; (uindex & 31) != (stopat & 31) && points[uindex & 31] != nullptr; --uindex )
+        if ( points[uindex & 31]->load( std::memory_order_acquire )->entity < entity )
+          {  (pstore = points[uindex & 31])->load();  break;  }
     }
 
   // теперь отмотать вправо до первого элемента, чей идентификатор будет больше вставляемого
@@ -541,7 +573,7 @@ namespace dynamic {
       {
         auto  curPoint = pindex.fetch_add( 1, std::memory_order_relaxed );
 
-        return points[curPoint % 32] = pstore, void(ncount.fetch_add( 1, std::memory_order_relaxed ));
+        return points[curPoint & 31] = pstore, void(ncount.fetch_add( 1, std::memory_order_relaxed ));
       }
 
     // если изменился, проверить, не стал ли он меньше вставляемого и не надо ли сделать
