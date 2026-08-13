@@ -116,7 +116,9 @@ namespace indexer {
     while ( getRefer.uEntity != uint32_t(-1) && suppress != nullptr && suppress->Get( getRefer.uEntity ) )
       getRefer = entities->Find( getRefer.uEntity + 1 );
 
-    return { getRefer.uEntity + entShift, getRefer.details };
+    if ( getRefer.uEntity != uint32_t(-1) )
+      getRefer.uEntity += entShift;
+    return getRefer;
   }
 
   auto  Override::Entities::Last() const -> uint32_t
