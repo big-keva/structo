@@ -15,7 +15,11 @@ namespace fusion {
     mtc::api<IStorage::IIndexStore>       outputStore;
 
   public:
-    auto  Add( const mtc::api<IContentsIndex> ) -> Contents&;
+    static constexpr struct to_tail_t {} to_tail{};
+    static constexpr struct to_head_t {} to_head{};
+
+    auto  Add( mtc::api<IContentsIndex>, const to_head_t& ) -> Contents&;
+    auto  Add( mtc::api<IContentsIndex>, const to_tail_t& ) -> Contents&;
 
     auto  Set( Notify::Func ) -> Contents&;
     auto  Set( std::function<bool()> ) -> Contents&;

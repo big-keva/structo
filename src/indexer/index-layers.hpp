@@ -23,8 +23,6 @@ namespace indexer {
   */
   class IndexLayers
   {
-    class Entities;
-
   public:
     IndexLayers() = default;
     IndexLayers( const mtc::api<IContentsIndex>*, size_t );
@@ -102,6 +100,45 @@ namespace indexer {
     std::vector<Iterator> contentsList;
     const std::string*    currentValue = nullptr;
 
+
+  };
+
+  class EntitiesChain final: public IContentsIndex::IEntities
+  {
+    friend class IndexLayers;
+
+    struct BlockEntry
+    {
+      uint32_t            uLower;
+      uint32_t            uUpper;
+      mtc::api<IEntities> entSet;
+    };
+
+    using BlockSet = std::vector<BlockEntry>;
+
+    mtc::api<const Iface>             holder;
+    BlockSet                          blocks;
+    mutable BlockSet::const_iterator  pblock;
+    uint32_t                          ncount = 0;
+    uint32_t                          bktype = uint32_t(-1);
+
+    implement_lifetime_control
+
+  public:
+    EntitiesChain( const Iface* parent = nullptr );
+
+    static constexpr struct to_head_t{} to_head{};
+    static constexpr struct to_tail_t{} to_tail{};
+
+    void  AddBlock( const BlockEntry&, const to_head_t& );
+    void  AddBlock( const BlockEntry&, const to_tail_t& );
+
+    // overridables
+    auto  Copy( const Bounds& ) const -> mtc::api<IEntities> override;
+    auto  Find( uint32_t ) -> Reference override;
+    auto  Last() const -> uint32_t override;
+    auto  Size() const -> uint32_t override {  return ncount;  }
+    auto  Type() const -> uint32_t override {  return bktype;  }
 
   };
 

@@ -55,30 +55,30 @@ namespace context {
     int_map_t         intmap;
   };
 
+  FieldManager::FieldManager(): data( std::make_shared<impl>() )
+  {
+  }
+
   auto  FieldManager::Add( const std::string_view& name ) -> FieldOptions*
   {
-    impl::str_map_t::iterator  pfound;
-
-    if ( data == nullptr )
-      data = std::make_shared<impl>();
-
     auto  shlock = mtc::make_shared_lock( data->fmutex );
     auto  exlock = mtc::make_unique_lock( data->fmutex, std::defer_lock );
+    auto  pfound = decltype(data->strmap.find("")){};
+
+    if ( (pfound = data->strmap.find( std::string( name ) )) != data->strmap.end() )
+      return pfound->second.get();
+
+    shlock.unlock();  exlock.lock();
 
     if ( (pfound = data->strmap.find( std::string( name ) )) == data->strmap.end() )
     {
-      shlock.unlock();  exlock.lock();
+      auto  nextId = uint32_t(data->strmap.size());
+      auto  fdName = std::string( name );
+      auto  pfield = std::make_shared<OptionsValue>( nextId, fdName );
 
-      if ( (pfound = data->strmap.find( std::string( name ) )) == data->strmap.end() )
-      {
-        auto  nextId = uint32_t(data->strmap.size());
-        auto  fdName = std::string( name );
-        auto  pfield = std::make_shared<OptionsValue>( nextId, fdName );
-
-        pfound =
-          data->strmap.insert( { fdName,
-          data->intmap.insert( { nextId, pfield } ).first->second } ).first;
-      }
+      pfound =
+        data->strmap.insert( { fdName,
+        data->intmap.insert( { nextId, pfield } ).first->second } ).first;
     }
 
     return pfound->second.get();

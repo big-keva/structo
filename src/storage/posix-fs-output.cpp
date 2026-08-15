@@ -199,6 +199,8 @@ namespace posixFS {
   static
   auto  CaptureIndex( const std::initializer_list<Unit> units, const StoragePolicies& policies, bool forced ) -> std::string
   {
+    assert( !forced );
+
     for ( ; ; std::this_thread::sleep_for( std::chrono::milliseconds( 1 ) ) )
     {
       auto  tm = uint64_t(std::chrono::duration_cast<std::chrono::milliseconds>(

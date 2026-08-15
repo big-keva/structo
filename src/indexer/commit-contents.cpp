@@ -109,6 +109,8 @@ namespace commit  {
   {
     pthread_setname_np( pthread_self(), "commit::Flush()" );
 
+    fprintf( stderr, "commit index %lx -> %lx\n", this, source.ptr() );
+
   // first commit index to the storage
   // then try open the new static index from the storage
     try

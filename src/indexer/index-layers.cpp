@@ -1,46 +1,8 @@
 # include "index-layers.hpp"
-
-#include <storage/posix-fs.hpp>
-
 # include "override-entities.hpp"
 
 namespace structo {
 namespace indexer {
-
-  class IndexLayers::Entities final: public IContentsIndex::IEntities
-  {
-    friend class IndexLayers;
-
-    struct BlockEntry
-    {
-      uint32_t            uLower;
-      uint32_t            uUpper;
-      mtc::api<IEntities> entSet;
-    };
-
-    using BlockSet = std::vector<BlockEntry>;
-
-    mtc::api<const Iface>             holder;
-    BlockSet                          blocks;
-    mutable BlockSet::const_iterator  pblock;
-    uint32_t                          ncount = 0;
-    uint32_t                          bktype = uint32_t(-1);
-
-    implement_lifetime_control
-
-  public:
-    Entities( const Iface* parent = nullptr );
-
-    void  AddBlock( const BlockEntry& );
-
-    // overridables
-    auto  Copy( const Bounds& ) const -> mtc::api<IEntities> override;
-    auto  Find( uint32_t ) -> Reference override;
-    auto  Last() const -> uint32_t override;
-    auto  Size() const -> uint32_t override {  return ncount;  }
-    auto  Type() const -> uint32_t override {  return bktype;  }
-
-  };
 
   // IndexLayers implementation
 
@@ -109,7 +71,7 @@ namespace indexer {
 
   auto  IndexLayers::getKeyBlock( const std::string_view& key, const mtc::Iface* pix ) const -> mtc::api<IContentsIndex::IEntities>
   {
-    mtc::api<Entities>  entities;
+    mtc::api<EntitiesChain>  entities;
 
     for ( auto& next: layers )
     {
@@ -118,9 +80,9 @@ namespace indexer {
       if ( pblock != nullptr )
       {
         if ( entities == nullptr )
-          entities = new Entities( pix );
+          entities = new EntitiesChain( pix );
 
-        entities->AddBlock( { next.uLower, next.uUpper, pblock } );
+        entities->AddBlock( { next.uLower, next.uUpper, pblock }, EntitiesChain::to_tail );
       }
     }
 
@@ -222,14 +184,24 @@ namespace indexer {
       entity->GetIndex() + uLower - 1 ) : entity;
   }
 
-  // IndexLayers::Entities implementation
+  // EntitiesChain implementation
 
-  IndexLayers::Entities::Entities( const Iface* pix ):
+  EntitiesChain::EntitiesChain( const Iface* pix ):
     holder( pix ), pblock( blocks.begin() )
   {
   }
 
-  void  IndexLayers::Entities::AddBlock( const BlockEntry& block )
+  void  EntitiesChain::AddBlock( const BlockEntry& block, const to_head_t& )
+  {
+    if ( blocks.empty() )
+      bktype = block.entSet->Type();
+
+    blocks.insert( blocks.begin(), block );
+    pblock = blocks.begin();
+    ncount += block.entSet->Size();
+  }
+
+  void  EntitiesChain::AddBlock( const BlockEntry& block, const to_tail_t& )
   {
     if ( blocks.empty() )
       bktype = block.entSet->Type();
@@ -239,7 +211,7 @@ namespace indexer {
       ncount += block.entSet->Size();
   }
 
-  auto  IndexLayers::Entities::Find( uint32_t ix ) -> Reference
+  auto  EntitiesChain::Find( uint32_t ix ) -> Reference
   {
     for ( auto  getRef = Reference(); pblock != blocks.end(); ++pblock )
     {
@@ -258,14 +230,14 @@ namespace indexer {
     return { uint32_t(-1), {} };
   }
 
-  auto  IndexLayers::Entities::Last() const -> uint32_t
+  auto  EntitiesChain::Last() const -> uint32_t
   {
     return blocks.size() != 0 ? blocks.back().uLower + blocks.back().entSet->Last() : 0;
   }
 
-  auto  IndexLayers::Entities::Copy( const Bounds& bounds ) const -> mtc::api<IEntities>
+  auto  EntitiesChain::Copy( const Bounds& bounds ) const -> mtc::api<IEntities>
   {
-    auto  newent = mtc::api( new Entities( holder ) );
+    auto  newent = mtc::api( new EntitiesChain( holder ) );
 
     newent->bktype = bktype;
 
@@ -280,7 +252,7 @@ namespace indexer {
           block.entSet->Copy( { bounds.uLower - block.uLower + 1, bounds.uUpper - block.uLower + 1 } ) };
 
         if ( blcopy.entSet != nullptr )
-          newent->AddBlock( blcopy );
+          newent->AddBlock( blcopy, to_tail );
     }
 
     return newent->blocks.size() != 0 ? newent.ptr() : nullptr;

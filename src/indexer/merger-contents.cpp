@@ -346,7 +346,12 @@ namespace fusion  {
 
   // Index implementation
 
-  auto  Contents::Add( const mtc::api<IContentsIndex> i ) -> Contents&
+  auto  Contents::Add( const mtc::api<IContentsIndex> i, const to_head_t& ) -> Contents&
+  {
+    indexVector.insert( indexVector.begin(), i );  return *this;
+  }
+
+  auto  Contents::Add( const mtc::api<IContentsIndex> i, const to_tail_t& ) -> Contents&
   {
     indexVector.push_back( i );  return *this;
   }
@@ -382,7 +387,7 @@ namespace fusion  {
     indexVector.clear();
 
     for ( auto& index: il )
-      Add( index );
+      Add( index, to_tail );
 
     return *this;
   }

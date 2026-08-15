@@ -18,6 +18,7 @@ namespace context {
     friend  mtc::array_zmap SaveFields( const FieldManager& );
 
   public:
+    FieldManager();
     auto  Add( const std::string_view& )       ->       FieldOptions* override;
     auto  Get( const std::string_view& ) const -> const FieldOptions* override;
     auto  Get( unsigned                ) const -> const FieldOptions* override;

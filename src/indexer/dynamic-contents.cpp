@@ -278,6 +278,8 @@ namespace dynamic {
   {
     uint64_t  linkagesSize;
 
+    fprintf( stderr, "Flush %lx\n", this );
+
     if ( pStorage == nullptr )
       throw std::logic_error( "output storage is not defined, but Commit() was called" );
 
@@ -287,6 +289,18 @@ namespace dynamic {
 //    contents.VerifyIds( GetMaxIndex() );
   // store entities table
     entities.Serialize( pStorage->Entities().ptr() );
+    if ( pStorage->Linkages() == nullptr )
+    {
+      fprintf( stderr, "storage::\n"
+        "\tEntities() -> %lx\n"
+        "\tContents() -> %lx\n"
+        "\tLinkages() -> %lx\n"
+        "\tPackages() -> %lx\n",
+          pStorage->Entities().ptr(),
+          pStorage->Contents().ptr(),
+          pStorage->Linkages().ptr(),
+          pStorage->Packages().ptr() );
+    }
     linkagesSize =
     contents.Serialize( pStorage->Contents().ptr(), pStorage->Linkages().ptr() );
 

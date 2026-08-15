@@ -198,7 +198,11 @@ namespace posixFS {
         linkages = new BlocksRepo( OpenFileStream( policies.GetPolicy( Unit::linkages )->GetFilePath(
           Unit::linkages ).c_str(), O_RDONLY, mtc::enable_exceptions ) );
       }
-      catch ( const mtc::file_error& )  {}
+      catch ( const mtc::file_error& )
+      {
+        fprintf( stderr, "could not open file '%s'\n", policies.GetPolicy( Unit::linkages )->GetFilePath(
+          Unit::linkages ).c_str() );
+      }
     }
     return linkages;
   }

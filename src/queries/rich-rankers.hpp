@@ -52,6 +52,7 @@ namespace queries {
 
   inline  auto  TermRanker::operator()( unsigned tag, uint8_t fid ) const -> double
   {
+  // !!! а если ранкера нет? !!!
     if ( ranker != nullptr && tag < ranker->tagOffset.size() && (tag = ranker->tagOffset[tag]) != unsigned(-1) )
       return ranker->fidWeight[tag + fid];
     return 0.2;

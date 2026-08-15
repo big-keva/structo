@@ -16,7 +16,7 @@ template <> inline
 structo::indexer::SerializeCache<mtc::IByteStream, 0x10000>*
   Serialize( structo::indexer::SerializeCache<mtc::IByteStream, 0x10000>* o, const void* p, size_t l )
 {
-  return o != nullptr ? o->put(p, l) : nullptr;
+  return o != nullptr ? o->put( p, l ) : nullptr;
 }
 
 namespace structo {
@@ -401,6 +401,8 @@ namespace dynamic {
     auto      ccache = SerializeCache<O2, 0x10000>( chain );
     auto      xstore = xcache.ptr();
     auto      cstore = ccache.ptr();
+
+    fprintf( stderr, "serialize to %lx, %lx\n", index, chain );
 
 # if defined( VERIFY_KEY_COUNT )
     // для уверенности в том, что KeysIndexer ничего не промотал, проверить совпадение количества

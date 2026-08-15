@@ -1,7 +1,6 @@
 # include "../storage/posix-fs.hpp"
 # include "../queries/parser.hpp"
 # include "../queries/builder.hpp"
-# include "../context/fields-man.hpp"
 # include "../context/lemmatizer.hpp"
 # include "../enquote/quotations.hpp"
 # include "../indexer/static-contents.hpp"
@@ -88,17 +87,20 @@ int   PrintObjects( mtc::api<structo::IContentsIndex> index, const char* query )
   auto  quotes = structo::enquote::QuoteMachine( *fields.get() );
   auto  quoter = quotes.Structured();
   auto  iquery = structo::queries::BuildRichQuery( zquery, {}, index, lgproc, *fields.get() );
+  auto  ufound = unsigned(0);
 
   if ( iquery == nullptr )
     return fprintf( stdout, "nothing found\n" ), 0;
 
-  for ( uint32_t uid = 201484; (uid = iquery->SearchDoc( uid + 1 )) != uint32_t(-1); )
+  for ( uint32_t uid = 0; (uid = iquery->SearchDoc( uid + 1 )) != uint32_t(-1); )
   {
+    auto  getdoc = index->GetEntity( uid );
     auto  ranked = iquery->GetTuples( uid );
 
     if ( ranked.dwMode == structo::queries::Abstract::Rich && ranked.entries.size() != 0 )
     {
-      auto  getdoc = index->GetEntity( uid );
+      ++ufound;
+      /*
 
       if ( getdoc != nullptr )
       {
@@ -111,8 +113,10 @@ int   PrintObjects( mtc::api<structo::IContentsIndex> index, const char* query )
 
         fputc( '\n', stdout );
       }
+      */
     }
   }
+  fprintf( stdout, "found %u entities\n", ufound );
   return 0;
 }
 
