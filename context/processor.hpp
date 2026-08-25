@@ -128,32 +128,24 @@ namespace context {
   {
     struct StrRef
     {
-      union
-      {
-        double          value;    // double value
-        const widechar* token;    // string pointer
-      };
-      unsigned          chars;    // string length or -1 for doubles
-      unsigned          hcode;    // cached hash code
-      unsigned          index;    // place
-
-      StrRef() = default;
-      StrRef( double v, unsigned h, unsigned i ):
-        value( v ), chars( -1 ), hcode( h ), index( i ) {}
-      StrRef( wide_string_view s, unsigned h, unsigned i ):
-        token( s.data() ), chars( s.size() ), hcode( h ), index( i ) {}
-      bool  operator != ( const TextToken& to ) const
-      {
-        if ( to.IsRational() )
-          return chars == unsigned(-1) ? (value > to.dvalue) != (value < to.dvalue) : false;
-        else
-          return chars != unsigned(-1) ? wide_string_view{ token, size_t(chars) } != to.GetWideStr() : false;
-      }
+      uint64_t  dwhash;
+      unsigned  uindex;
+      unsigned  length;
     };
-    auto    hsize = AlignSize( (image.tokens.size() + 3) * 3 / 2 );
-    auto    table = std::vector<StrRef>( hsize );
-    auto    tdata = table.data();
-    auto    tmask = hsize - 1;
+
+    const auto  hsize = AlignSize( (image.tokens.size() + 3) * 3 / 2 );
+    auto        table = std::vector<StrRef>( hsize );
+    const auto  tdata = table.data();
+    const auto  tmask = hsize - 1;
+    const auto  equal = [&]( const StrRef& l, const TextToken& rw )
+      {
+        auto& lw = image.tokens[l.uindex];
+        int   lt = lw.IsRational() ? 1 : 0;
+        int   rt = rw.IsRational() ? 1 : 0;
+        int   rc = lt - rt;
+
+        return rc == 0 ? lt == 1 ? lw.dvalue == rw.dvalue : lw.GetWideStr() == rw.GetWideStr() : false;
+      };
 
     image.lemmas.clear();
     image.lemmas.resize( image.tokens.size() );
@@ -163,35 +155,39 @@ namespace context {
     for ( size_t i = 0; i < image.tokens.size(); i++ )
     {
       auto& rfword = image.tokens[i];
-      auto  dwhash = unsigned(rfword.IsRational() ? std::hash<double>()( rfword.dvalue ) :
-        std::hash<std::basic_string_view<widechar>>()( rfword.GetWideStr() ));
+      auto  dwhash = rfword.IsRational() ?
+        std::hash<double>()( rfword.dvalue ) :
+        std::hash<std::basic_string_view<widechar>>()( rfword.GetWideStr() );
       auto  hindex = dwhash & (hsize - 1);
       auto  pentry = tdata + hindex;
 
     // find place for a word
-      while ( pentry->chars != 0 && (pentry->hcode != dwhash || *pentry != rfword) )
-        pentry = tdata + (hindex = ((hindex + 1) & tmask));
+      while ( pentry->dwhash != dwhash && pentry->length != 0 && !equal( *pentry, rfword ) )
+        pentry = tdata + (hindex = (hindex + 1) & tmask);
 
     // search for already lemmatized token
-      if ( pentry->chars == 0 )
+      if ( pentry->length == 0 )
       {
-        auto  curlen = image.lexbuf.size();
+        unsigned  curpos = image.lexbuf.size();
+        unsigned  lexlen;
 
         if ( rfword.IsRational() )
+        {
           image.lexbuf.emplace_back( rfword.dvalue >= 0 ? 0xfe : 0xfd, rfword.dvalue );
-        else
+          lexlen = 1;
+        }
+          else
+        {
           Lemmatize( image.lexbuf, rfword.GetWideStr() );
+          lexlen = unsigned(image.lexbuf.size() - curpos);
+        }
 
-        image.lemmas[i] = mtc::span<const Lexeme>( (Lexeme*)curlen,
-          image.lexbuf.size() - curlen );
+        image.lemmas[i] = mtc::span( (const Lexeme*)curpos, lexlen );
 
-        if ( rfword.IsRational() )
-          *pentry = { rfword.dvalue, dwhash, unsigned(i) };
-        else
-          *pentry = StrRef( rfword.GetWideStr(), dwhash, unsigned(i) );
+        *pentry = { dwhash, curpos, lexlen };
       }
         else
-      image.lemmas[i] = image.lemmas[pentry->index];
+      image.lemmas[i] = mtc::span<const Lexeme>( (const Lexeme*)pentry->uindex, pentry->length );
     }
 
   // transform indexes to pointers

@@ -41,45 +41,48 @@ if (NOT TARGET DeliriX)
 endif()
 
 add_library(structo
-	src/primes.cpp
+  src/primes.cpp
 
-	src/context/lemmatizer.cpp
-	src/context/index-keys.cpp
-	src/context/x-contents.cpp
-	src/context/fields-man.cpp
-	src/context/processor.cpp
-	src/context/pack-format.cpp
-	src/context/pack-images.cpp
+ src/context/lemmatizer.cpp
+ src/context/index-keys.cpp
+ src/context/x-contents.cpp
+ src/context/fields-man.cpp
+ src/context/processor.cpp
+ src/context/pack-format.cpp
+ src/context/pack-images.cpp
 
-	src/enquote/quotations.cpp
+ src/enquote/quotations.cpp
 
-	src/indexer/commit-contents.cpp
-	src/indexer/contents-index-merger.cpp
-	src/indexer/dynamic-contents.cpp
-	src/indexer/index-layers.cpp
-	src/indexer/layered-contents.cpp
-	src/indexer/merger-contents.cpp
-	src/indexer/override-entities.cpp
-	src/indexer/static-contents.cpp
-	src/indexer/strmatch.cpp
+ src/indexer/commit-contents.cpp
+ src/indexer/contents-index-merger.cpp
+ src/indexer/dynamic-contents.cpp
+ src/indexer/index-layers.cpp
+ src/indexer/layered-contents.cpp
+ src/indexer/merger-contents.cpp
+ src/indexer/override-entities.cpp
+ src/indexer/static-contents.cpp
+ src/indexer/strmatch.cpp
 
-	src/queries/parser.cpp
-	src/queries/queries.cpp
-	src/queries/query-terms.cpp
-	src/queries/query-tools.cpp
-	src/queries/base-queries.cpp
-	src/queries/rich-rankers.cpp
-	src/queries/rich-queries.cpp
-	src/queries/mini-queries.cpp
+ src/queries/parser.cpp
+ src/queries/queries.cpp
+ src/queries/query-terms.cpp
+ src/queries/query-tools.cpp
+ src/queries/base-queries.cpp
+ src/queries/rich-rankers.cpp
+ src/queries/rich-queries.cpp
+ src/queries/mini-queries.cpp
 
-        src/rankers/bm25.cpp
+  src/rankers/bm25.cpp
 
-	src/storage/posix-fs-output.cpp
-	src/storage/posix-fs-serial.cpp
-	src/storage/posix-fs-storage.cpp
-	src/storage/posix-fs-policies.cpp
-	src/storage/posix-fs-dump-store.cpp
-	src/storage/linux-fs-output-direct.cpp)
+ src/storage/posix-fs-output.cpp
+ src/storage/posix-fs-serial.cpp
+ src/storage/posix-fs-storage.cpp
+ src/storage/posix-fs-policies.cpp
+ src/storage/posix-fs-dump-store.cpp
+ src/storage/linux-fs-output-direct.cpp)
+
+target_link_libraries(structo
+  uring)
 
 add_subdirectory(tests)
 add_subdirectory(utils)

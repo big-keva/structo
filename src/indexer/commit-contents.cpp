@@ -1,4 +1,5 @@
 # include "../../indexer/static-contents.hpp"
+# include "../../exceptions.hpp"
 # include "commit-contents.hpp"
 # include "override-entities.hpp"
 # include "dynamic-bitmap.hpp"
@@ -109,8 +110,6 @@ namespace commit  {
   {
     pthread_setname_np( pthread_self(), "commit::Flush()" );
 
-    fprintf( stderr, "commit index %lx -> %lx\n", this, source.ptr() );
-
   // first commit index to the storage
   // then try open the new static index from the storage
     try
@@ -218,7 +217,7 @@ namespace commit  {
   auto  ContentsIndex::SetEntity( EntityId, const mtc::span<const EntryView>&,
     const std::string_view&, const std::string_view& ) -> mtc::api<const IEntity>
   {
-    throw std::logic_error( "commit::SetEntity(...) must not be called" );
+    throw index_readonly( "commit::SetEntity(...) must not be called" );
   }
 
   auto  ContentsIndex::SetExtras( EntityId id, const std::string_view& xtra ) -> mtc::api<const IEntity>

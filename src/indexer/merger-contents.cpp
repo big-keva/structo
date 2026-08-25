@@ -1,5 +1,6 @@
 # include "merger-contents.hpp"
 # include "contents-index-merger.hpp"
+# include "../../exceptions.hpp"
 # include "../../indexer/static-contents.hpp"
 # include "override-entities.hpp"
 # include "index-layers.hpp"
@@ -227,7 +228,7 @@ namespace fusion  {
   auto  ContentsIndex::SetEntity( EntityId, const mtc::span<const EntryView>&,
     const std::string_view&, const std::string_view& ) -> mtc::api<const IEntity>
   {
-    throw std::logic_error( "merger::SetEntity(...) must not be called" );
+    throw index_readonly( "merger::SetEntity(...) must not be called" );
   }
 
   auto  ContentsIndex::SetExtras( EntityId id, const std::string_view& xtra ) -> mtc::api<const IEntity>

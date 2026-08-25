@@ -23,23 +23,23 @@ namespace context {
       is_value = 0x8
     };
 
-    unsigned        uFlags;
     union
     {
       const widechar* pwsstr;     // строка...
       double          dvalue;     // ...или число
     };
+    unsigned        uFlags;
     uint32_t        offset;       // смещение начала строки/числа в текстеs
     uint32_t        length;       // длина текстового представления
 
     TextToken( unsigned flags, const widechar* token, uint32_t uoffs, uint32_t usize ):
-      uFlags( flags ),
       pwsstr( token ),
+      uFlags( flags ),
       offset( uoffs ),
       length( usize ) {}
     TextToken( unsigned flags, double value, uint32_t uoffs, uint32_t usize ):
-      uFlags( flags | is_value ),
       dvalue( value ),
+      uFlags( flags | is_value ),
       offset( uoffs ),
       length( usize ) {}
 

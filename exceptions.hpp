@@ -5,6 +5,7 @@
 namespace structo {
 
   class index_overflow: public std::runtime_error {  using runtime_error::runtime_error;  };
+  class index_readonly: public std::runtime_error {  using runtime_error::runtime_error;  };
 
 }
 

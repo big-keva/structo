@@ -402,8 +402,6 @@ namespace dynamic {
     auto      xstore = xcache.ptr();
     auto      cstore = ccache.ptr();
 
-    fprintf( stderr, "serialize to %lx, %lx\n", index, chain );
-
 # if defined( VERIFY_KEY_COUNT )
     // для уверенности в том, что KeysIndexer ничего не промотал, проверить совпадение количества
     // ключей в hash-table и в radixTree

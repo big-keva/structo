@@ -53,12 +53,13 @@ namespace layered {
     };
 
     using AtomicEntry = std::atomic<IndexEntry*>;
+    using UniqueEntry = std::unique_ptr<IndexEntry>;
 
     struct MergeItems
     {
-      AtomicEntry*  beg;
-      AtomicEntry*  end;
-      uint32_t      len;
+      AtomicEntry*  beg = nullptr;
+      AtomicEntry*  end = nullptr;
+      uint32_t      len = 0;
     };
 
   public:
@@ -106,15 +107,18 @@ namespace layered {
 
   // index manager - lock-free list
     AtomicEntry               layers = nullptr;
-    mtc::api<IContentsIndex>  preDyn;           // предварительно зарезервированный динамический индекс
+    mtc::api<IContentsIndex>  pre_ix;           // предварительно зарезервированный динамический индекс
 
   // event manager - the events are processed after the index
   // asyncronous action is performed
     std::list<EventRec>       evQueue;
     std::mutex                evMutex;
     std::condition_variable   evEvent;
+
     std::thread               monitor;
     std::atomic_long          mergers = 0;
+    std::list<UniqueEntry>    backEnt;      // entries to be deleted
+
 //    std::vector<uint64_t>     docHash;
 //    size_t                    hashLen = 1024 * 1024;   // billion entities
   };
@@ -224,21 +228,21 @@ namespace layered {
       }
 
   // add dynamic index to the end if possible
-    if ( auto dynamic = istore->CreateStore(); dynamic != nullptr )
+    if ( auto dynamic = istore->CreateStore(); !(rdOnly = dynamic == nullptr) )
     {
+    // add it to the end of the list of indices
       layers.store( new IndexEntry( dwLower, dynamic::Index().Set( dynamic ).Set( dynSet ).Create(), layers.load() ) );
         layers.load()->uUpper = uint32_t(-1);
         layers.load()->dwSets = 1;
 
-    // взять резервный динамический индекс для будущей ротации
-      preDyn = dynamic::Index().Set( dynamic ).Set( dynSet ).Create();
-      rdOnly = false;
-    } else rdOnly = true;
+    // create one more dynamic index with new storage
+      pre_ix = dynamic::Index().Set( istore->CreateStore() ).Set( dynSet ).Create();
+    }
   }
 
   auto  ContentsIndex::StartMonitor( const std::chrono::seconds& mergeMonitorDelay ) -> ContentsIndex*
   {
-//    monitor = std::thread( &ContentsIndex::MergeMonitor, this, mergeMonitorDelay );
+    monitor = std::thread( &ContentsIndex::MergeMonitor, this, mergeMonitorDelay );
     return this;
   }
 
@@ -296,13 +300,15 @@ namespace layered {
   {
     auto  player = layers.load();
 
+    if ( rdOnly )
+      throw index_readonly( "layered::ContentsIndex::SetEntity( ... ) call to read-only index @" __FILE__ ":" LINE_STRING );
+
     if ( player == nullptr )
       throw std::logic_error( "index flakes are not initialized" );
 
     for ( ; ; )
     {
-    // try SetEntity(...) to the last index in the chain;
-    // ** mark the index as containing actual id verion      auto  pindex = player->pIndex.ptr();       // the last index pointer, unchanged in one thread
+      // try SetEntity(...) to the last index in the chain;
       try
       {
         if ( auto thedoc = player->pIndex->SetEntity( id, keys, xtra, beef ); thedoc != nullptr )
@@ -325,10 +331,8 @@ namespace layered {
     // on dynamic index overflow, rotate the last index
       catch ( const index_overflow& /*xo*/ )
       {
-        static std::mutex mutex;
-        auto lock = mtc::make_unique_lock( mutex );
       // create new entry for dynamic index and mark as non-mergeable
-        auto  newptr = std::make_unique<IndexEntry>( player->uUpper + 1, uint32_t(-1), preDyn, player );
+        auto  newptr = std::make_unique<IndexEntry>( player->uUpper + 1, uint32_t(-1), pre_ix, player );
           newptr->dwSets = 1;
 
       // try rotate index; if already rotated by another thread, continue attempts
@@ -337,7 +341,7 @@ namespace layered {
           continue;
 
       // if replaced, reallocate the new dynamic index
-        preDyn = dynamic::Index()
+        pre_ix = dynamic::Index()
           .Set( dynSet )
           .Set( istore->CreateStore() ).Create();
 
@@ -350,6 +354,11 @@ namespace layered {
             evEvent.notify_one();
           } );
         player = newptr.release();
+      }
+      // on already rotated, repeat with reloaded
+      catch ( const index_readonly& /*xr*/ )
+      {
+        player = layers.load();
       }
     }
   }
@@ -470,7 +479,6 @@ namespace layered {
           case Notify::Event::OK:
             {
               auto  player = ppswap->load();
-            /*
               auto  newone = std::make_unique<IndexEntry>(
                 player->uLower,
                 player->uUpper,
@@ -480,8 +488,7 @@ namespace layered {
               if ( !ppswap->compare_exchange_strong( player, newone.release() ) )
                 throw std::logic_error( "index chain was modified outsize of MergeMonitor @" __FILE__ ":" LINE_STRING );
 
-              delete player;
-             */
+              backEnt.push_back( UniqueEntry( player ) );
             }
             break;
 
@@ -494,7 +501,7 @@ namespace layered {
               if ( !ppswap->compare_exchange_strong( player, player->pChain.load() ) )
                 throw std::logic_error( "index chain was modified outsize of MergeMonitor @" __FILE__ ":" LINE_STRING );
 
-              delete player;
+              backEnt.push_back( UniqueEntry( player ) );
             }
             break;
 
@@ -502,8 +509,6 @@ namespace layered {
         // of entries saved in the entry processed
           case Notify::Event::Canceled:
             {
-              fprintf( stderr, "Cancelled\n" );
-
               auto  toswap = ppswap->load();
               auto  backup = toswap->backup;
               auto  pplink = &backup->pChain;
@@ -519,7 +524,8 @@ namespace layered {
 
             // remove swapped index
               ppswap->store( backup, std::memory_order_release );
-              delete toswap;
+
+              backEnt.push_back( UniqueEntry( toswap ) );
             }
             break;
 
@@ -530,24 +536,14 @@ namespace layered {
       }
 
     // try select indices to be merged
-      if ( false && canRun )
+      if ( canRun && mergers.load() < max_merge_threads )
       {
         auto  limits = SelectLimits();      // select area to be merged
 
       // select the limits, check and select again the limits for merger
         if ( limits.beg != limits.end )
         {
-          fprintf( stderr, "selected %d indices:\n", limits.len );
-
-          for ( auto p = limits.beg; p != nullptr; )
-          {
-            fprintf( stderr, "\t%lx\n", p->load() );
-            if ( p == limits.end )  break;
-              else p = &p->load()->pChain;
-          }
-
-          auto  pentry = std::make_unique<IndexEntry>(
-            limits.beg->load()->uLower );
+          auto  pentry = std::make_unique<IndexEntry>( limits.end->load()->uLower );
           auto  xMaker = fusion::Contents()
             .Set( [this]( void* to, Notify::Event event )
               {
@@ -560,25 +556,22 @@ namespace layered {
             .Set( istore->CreateStore() );
 
         // fill merger list
-          for ( auto next = limits.beg; ; )
-          {
-            auto loaded = next->load();
+          for ( auto next = limits.beg; next != nullptr; next = next != limits.end ? &next->load()->pChain : nullptr )
+            xMaker.Add( next->load()->pIndex, fusion::Contents::to_head );
 
-            xMaker.Add( next->load()->pIndex,
-              fusion::Contents::to_head );
-            if ( next != limits.end ) next = &next->load()->pChain;
-              else break;
-          }
-
-          pentry->pChain = limits.beg->load()->pChain.load();
-          pentry->pIndex = xMaker.Create();
+        // * link new entry to next-after-last
+        // * set backup chain
+        // * set new upper limit
+        // * create merger index and begin merge process
+          pentry->pChain = limits.end->load()->pChain.load();
           pentry->backup = limits.beg->load();
           pentry->uUpper = limits.beg->load()->uUpper;
+          pentry->pIndex = xMaker.Create();
           pentry->dwSets = 1;
 
         // link index to che chain and unlink backup from the list
           limits.beg->store( pentry.release() );
-          limits.end->load()->pChain.store( nullptr );
+          limits.end->load()->pChain = nullptr;
 
           ++mergers;
         }
@@ -626,19 +619,16 @@ namespace layered {
       return length / (1.0 + weight_sigma);
     };
 
-    if ( mergers.load() >= max_merge_threads )
-      return select;
-
+  // создать массив указателей на индексы со свойством "количество документов";
+  // не учитывать те, которы находятся в состоянии слияния или сброса на диск
     for ( auto next = &layers; next->load() != nullptr; next = &next->load()->pChain )
-    {
-      auto  entry = next->load();
-
-      if ( entry->dwSets == 0 )
+      if ( next->load()->dwSets == 0 )
         asizes.push_back( { next, next->load()->pIndex->GetMaxIndex() } );
       else
         asizes.push_back( { nullptr, 0 } );
-    }
 
+  // выбрать интервал для слияния такой, чтобы была максимальная длина при минимальном
+  // количестве документов
     for ( size_t from = 0; from != asizes.size(); ++from )
       if ( asizes[from].pLayer != nullptr )
         for ( size_t to = from + 1; to < asizes.size() && asizes[to].pLayer != nullptr; ++to )

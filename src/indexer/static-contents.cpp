@@ -1,4 +1,7 @@
 # include "../../indexer/static-contents.hpp"
+
+#include <exceptions.hpp>
+
 # include "override-entities.hpp"
 # include "static-entities.hpp"
 # include "dynamic-bitmap.hpp"
@@ -260,7 +263,7 @@ namespace static_ {
   auto  ContentsIndex::SetEntity( EntityId, const mtc::span<const EntryView>&,
     const std::string_view&, const std::string_view& ) -> mtc::api<const IEntity>
   {
-    throw std::logic_error( "static_::ContentsIndex::SetEntity( ) must not be called" );
+    throw index_readonly( "static_::ContentsIndex::SetEntity( ) must not be called" );
   }
 
   auto  ContentsIndex::SetExtras( EntityId id, const std::string_view& xtras ) -> mtc::api<const IEntity>
