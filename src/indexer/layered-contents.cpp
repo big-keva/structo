@@ -52,8 +52,19 @@ namespace layered {
       IndexEntry& operator=( const IndexEntry& ) = delete;
     };
 
+    using clock_type = std::chrono::steady_clock;
+    using time_point = clock_type::time_point;
+
     using AtomicEntry = std::atomic<IndexEntry*>;
     using UniqueEntry = std::unique_ptr<IndexEntry>;
+
+    struct TimingEntry
+    {
+      UniqueEntry entry;
+      time_point  timer;
+
+      TimingEntry( IndexEntry* ie, time_point tm ): entry( ie ), timer( tm )  {}
+    };
 
     struct MergeItems
     {
@@ -117,7 +128,7 @@ namespace layered {
 
     std::thread               monitor;
     std::atomic_long          mergers = 0;
-    std::list<UniqueEntry>    backEnt;      // entries to be deleted
+    std::list<TimingEntry>    backEnt;      // entries to be deleted
 
 //    std::vector<uint64_t>     docHash;
 //    size_t                    hashLen = 1024 * 1024;   // billion entities
@@ -458,6 +469,10 @@ namespace layered {
     {
       auto  evNext = WaitGetEvent( std::chrono::seconds( 30 ) );
 
+    // remove old entries
+      for ( auto tpoint = clock_type::now(); !backEnt.empty() && tpoint - backEnt.front().timer >= std::chrono::minutes( 1 ); )
+        backEnt.pop_front();
+
     // for event occured, search the element in the list of indices to Reduce()
     // and finish index modification
       if ( evNext.first != nullptr && canRun )
@@ -488,7 +503,7 @@ namespace layered {
               if ( !ppswap->compare_exchange_strong( player, newone.release() ) )
                 throw std::logic_error( "index chain was modified outsize of MergeMonitor @" __FILE__ ":" LINE_STRING );
 
-              backEnt.push_back( UniqueEntry( player ) );
+              backEnt.emplace_back( player, clock_type::now() );
             }
             break;
 
@@ -501,7 +516,7 @@ namespace layered {
               if ( !ppswap->compare_exchange_strong( player, player->pChain.load() ) )
                 throw std::logic_error( "index chain was modified outsize of MergeMonitor @" __FILE__ ":" LINE_STRING );
 
-              backEnt.push_back( UniqueEntry( player ) );
+              backEnt.emplace_back( player, clock_type::now() );
             }
             break;
 
@@ -525,7 +540,7 @@ namespace layered {
             // remove swapped index
               ppswap->store( backup, std::memory_order_release );
 
-              backEnt.push_back( UniqueEntry( toswap ) );
+              backEnt.emplace_back( toswap, clock_type::now() );
             }
             break;
 
