@@ -3,6 +3,8 @@
 # include <mtc/ptr.h>
 # include <cstddef>
 # include <atomic>
+# include <thread>
+# include <immintrin.h>
 
 namespace structo {
 namespace indexer {
@@ -11,48 +13,50 @@ namespace dynamic {
   template <class T, size_t N>
   class RingBuffer
   {
-    using AtomicValue = std::atomic<T>;
-    using AtomicPlace = std::atomic<AtomicValue*>;
+    static_assert( (N & (N - 1)) == 0, "RingBuffer size has to be power of two!" );
 
-    AtomicValue   buffer[N];
-    AtomicPlace   buftop = &buffer[0];
-    AtomicPlace   bufend = &buffer[0];
-
-  protected:
-    auto  next( std::atomic<T>* p ) -> std::atomic<T>*
+    struct alignas(64) AtomicValue
     {
-      return ++p < &buffer[N] ? p : &buffer[0];
-    }
+      T                   value;
+      std::atomic<size_t> steps;
+    };
+
+    using AtomicPlace = std::atomic<size_t>;
+
+                AtomicValue   buffer[N];
+    alignas(64) AtomicPlace   putPos{0};
+    alignas(64) AtomicPlace   getPos{0};
 
   public:
+    RingBuffer()
+    {
+      for ( size_t i = 0; i != N; ++i )
+        buffer[i].steps.store( i, std::memory_order_relaxed );
+    }
     void  Put( T t )
     {
-      for ( auto pstore = mtc::ptr::clean( bufend.load() ); ; pstore = mtc::ptr::clean( pstore ) )
-      {
-        auto  pafter = next( pstore );
-        auto  pfetch = mtc::ptr::clean( buftop.load() );
+      auto  putIdx = putPos.fetch_add( 1, std::memory_order_relaxed );
+      auto& toCell = buffer[putIdx & (N - 1)];
 
-        if ( pafter != pfetch )
-        {
-          if ( bufend.compare_exchange_strong( pstore, mtc::ptr::dirty( pstore ) ) )
-            return (void)(pstore->store( t ), bufend = pafter);
-        }
-      }
+      for ( auto nloops = 0; toCell.steps.load( std::memory_order_acquire ) != putIdx; ++nloops )
+        if ( nloops < 64 )  _mm_pause();
+          else std::this_thread::yield();
+
+      toCell.value = std::move( t );
+      toCell.steps.store( putIdx + 1, std::memory_order_release );
     }
     bool  Get( T& tvalue )
     {
-      for ( auto  pfetch = mtc::ptr::clean( buftop.load() ); ; pfetch = mtc::ptr::clean( pfetch ) )
-      {
-        auto  pstore = mtc::ptr::clean( bufend.load() );
-        auto  pafter = next( pfetch );
+      auto  getIdx = getPos.load( std::memory_order_relaxed );
+      auto& atCell = buffer[getIdx & (N - 1)];
 
-        if ( pfetch == pstore )
-          return false;
+      if ( atCell.steps.load( std::memory_order_acquire ) != getIdx + 1 )
+        return false;
 
-        // make dirty fetch pointer
-        if ( buftop.compare_exchange_strong( pfetch, mtc::ptr::dirty( pfetch ) ) )
-          return tvalue = pfetch->load(), buftop = pafter, true;
-      }
+      tvalue = std::move( atCell.value );
+        atCell.steps.store( getIdx + N, std::memory_order_release );
+
+      return getPos.store( getIdx + 1, std::memory_order_release ), true;
     }
   };
 
