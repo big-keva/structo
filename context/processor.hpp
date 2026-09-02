@@ -147,8 +147,7 @@ namespace context {
         return rc == 0 ? lt == 1 ? lw.dvalue == rw.dvalue : lw.GetWideStr() == rw.GetWideStr() : false;
       };
 
-    image.lemmas.clear();
-    image.lemmas.resize( image.tokens.size() );
+    image.lemmas.reserve( image.tokens.size() );
     image.lexbuf.reserve( image.tokens.size() * 2 );
 
   // create words index
@@ -162,7 +161,7 @@ namespace context {
       auto  pentry = tdata + hindex;
 
     // find place for a word
-      while ( pentry->dwhash != dwhash && pentry->length != 0 && !equal( *pentry, rfword ) )
+      while ( pentry->dwhash != dwhash && pentry->length != 0/* && !equal( *pentry, rfword )*/ )
         pentry = tdata + (hindex = (hindex + 1) & tmask);
 
     // search for already lemmatized token
@@ -182,12 +181,12 @@ namespace context {
           lexlen = unsigned(image.lexbuf.size() - curpos);
         }
 
-        image.lemmas[i] = mtc::span( (const Lexeme*)curpos, lexlen );
+        image.lemmas.emplace_back( (const Lexeme*)curpos, lexlen );
 
         *pentry = { dwhash, curpos, lexlen };
       }
         else
-      image.lemmas[i] = mtc::span<const Lexeme>( (const Lexeme*)pentry->uindex, pentry->length );
+      image.lemmas.emplace_back( (const Lexeme*)pentry->uindex, pentry->length );
     }
 
   // transform indexes to pointers
