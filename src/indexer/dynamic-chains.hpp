@@ -555,12 +555,14 @@ namespace dynamic {
 
       for ( auto  uindex = stopat - 1; (uindex & 31) != (stopat & 31) && points[uindex & 31] != nullptr; --uindex )
         if ( points[uindex & 31]->load( std::memory_order_acquire )->entity < entity )
-          {  (pstore = points[uindex & 31])->load();  break;  }
+          {  pstore = points[uindex & 31];  break;  }
     }
 
   // теперь отмотать вправо до первого элемента, чей идентификатор будет больше вставляемого
     for ( pentry = pstore->load(); pentry != nullptr && pentry->entity < entity; )
-      pentry = (pstore = &pentry->p_next)->load( std::memory_order_acquire );
+      pentry = (pstore = &pentry->p_next)->load( std::memory_order_relaxed );
+
+    std::atomic_thread_fence( std::memory_order_acquire );
 
   // pstore указывает на атомарную переменную с указателем, на место которого будет вставка,
   // а pentry хранит его значение
