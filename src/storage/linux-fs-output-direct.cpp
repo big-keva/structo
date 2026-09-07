@@ -318,9 +318,14 @@ namespace posixFS {
     {
       int   nerror;
 
-      if ( bufptr != static_cast<char*>( buffer ) )
+      if ( auto inbuff = size_t(bufptr - static_cast<char*>( buffer )); inbuff != 0 )
       {
-        if ( write( fileno, buffer, bufend - static_cast<const char*>( buffer ) ) != bufend - static_cast<const char*>( buffer ) )
+        auto  ualign = (inbuff + MemAlignDirectIO - 1) & ~(MemAlignDirectIO - 1);
+
+        if ( ualign > inbuff )
+          memset( bufptr, 0, ualign - inbuff );
+
+        if ( write( fileno, buffer, ualign ) != static_cast<ssize_t>(ualign) )
         {
           nerror = errno;
 
