@@ -367,6 +367,11 @@ namespace fusion  {
     canContinue = fCanContinue;  return *this;
   }
 
+  auto  Contents::Set( std::function<void( uint32_t )> fOnSize ) -> Contents&
+  {
+    onWriteSize = fOnSize;  return *this;
+  }
+
   auto  Contents::Set( mtc::api<IStorage::IIndexStore> px ) -> Contents&
   {
     outputStore = px;  return *this;
@@ -398,6 +403,7 @@ namespace fusion  {
     return (new ContentsIndex( indexVector, std::move( ContentsMerger()
       .Set( indexVector )
       .Set( canContinue )
+      .Set( onWriteSize )
       .Set( outputStore ) ), notifyEvent ))->StartMerger();
   }
 

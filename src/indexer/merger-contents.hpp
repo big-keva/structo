@@ -12,6 +12,7 @@ namespace fusion {
     std::vector<mtc::api<IContentsIndex>> indexVector;
     Notify::Func                          notifyEvent;
     std::function<bool()>                 canContinue;
+    std::function<void( uint32_t )>       onWriteSize;
     mtc::api<IStorage::IIndexStore>       outputStore;
 
   public:
@@ -23,6 +24,7 @@ namespace fusion {
 
     auto  Set( Notify::Func ) -> Contents&;
     auto  Set( std::function<bool()> ) -> Contents&;
+    auto  Set( std::function<void( uint32_t )> ) -> Contents&;
     auto  Set( mtc::api<IStorage::IIndexStore> ) -> Contents&;
     auto  Set( const mtc::api<IContentsIndex>*, size_t ) -> Contents&;
     auto  Set( const std::vector<mtc::api<IContentsIndex>>& ) -> Contents&;
