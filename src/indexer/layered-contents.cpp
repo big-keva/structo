@@ -568,6 +568,28 @@ namespace layered {
                   evEvent.notify_one();
               } )
 //              .Set( canContinue )
+            .Set( [nbytes = uint64_t(0), tstart = std::chrono::high_resolution_clock::time_point()]( uint32_t addLen ) mutable
+              {
+                if ( tstart == std::chrono::high_resolution_clock::time_point() )
+                  return (void)(nbytes = addLen, tstart = std::chrono::high_resolution_clock::now());
+
+                if ( (nbytes += addLen) >= 2 * 0x400 * 0x400 )
+                {
+                  auto  tfinal = std::chrono::high_resolution_clock::now();
+                  auto  utimer = std::max( uint32_t(std::chrono::duration_cast<std::chrono::milliseconds>(
+                    tfinal - tstart ).count()), uint32_t(1) );
+                  auto uspeed = nbytes * 1000.0 / utimer;
+
+                  if ( uspeed < 8 * 1024 * 1024 )
+                  {
+                    std::this_thread::sleep_for( std::chrono::microseconds( 200 ) );
+                      fprintf( stdout, "\t%g Mb/s\n", uspeed / 1024 / 1024 );
+                    tfinal = std::chrono::high_resolution_clock::now();
+                  }
+                  nbytes = 0;
+                  tstart = tfinal;
+                }
+              } )
             .Set( istore->CreateStore() );
 
         // fill merger list
