@@ -9,13 +9,15 @@ namespace fusion {
 
   class ContentsMerger
   {
-    std::function<bool()>   canContinue = [](){  return true;  };
+    std::function<bool()>           canContinue = [](){  return true;  };
+    std::function<void( uint32_t )> onWriteSize = {};
 
   public:
     ContentsMerger() = default;
 
     auto  Add( mtc::api<IContentsIndex> ) -> ContentsMerger&;
     auto  Set( std::function<bool()> ) -> ContentsMerger&;
+    auto  Set( std::function<void( uint32_t )> ) -> ContentsMerger&;
     auto  Set( mtc::api<IStorage::IIndexStore> ) -> ContentsMerger&;
     auto  Set( const mtc::api<IContentsIndex>*, size_t ) -> ContentsMerger&;
     auto  Set( const std::vector<mtc::api<IContentsIndex>>& ) -> ContentsMerger&;
@@ -28,10 +30,20 @@ namespace fusion {
     void  MergeContents();
 
   protected:
-    mtc::api<IStorage::IIndexStore>       storage;
-    std::vector<mtc::api<IContentsIndex>> indices;
-    std::vector<std::vector<uint32_t>>    remapId;
-    mtc::zmap                             statMap{ { "created-by", "index-merger" } };
+    struct IndexRec
+    {
+      mtc::api<IContentsIndex>  index;
+      std::vector<uint32_t>     remap;
+      uint32_t                  oldId = 0;
+      bool                      fixed = true;     // if renumeration order is stable
+
+      IndexRec( mtc::api<IContentsIndex> ix ):
+        index( ix ),
+        remap( ix->GetMaxIndex() + 1 )  {}
+    };
+    mtc::api<IStorage::IIndexStore> storage;
+    std::vector<IndexRec>           indices;
+    mtc::zmap                       statMap{ { "created-by", "index-merger" } };
 
   };
 
