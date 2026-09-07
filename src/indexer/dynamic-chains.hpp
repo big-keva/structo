@@ -249,7 +249,7 @@ namespace dynamic {
 
     // lookup the collision chain for the element with searched key
     for ( ; hvalue != nullptr; hvalue = hvalue->pchain )
-      if ( hvalue->nhCode == nhcode && *hvalue == key )
+      if ( hvalue->nhCode == nhcode /*&& *hvalue == key */)
       {
         if ( hvalue->bkType != bkType )
           throw std::invalid_argument( "Block type do not match the previously defined type" );
@@ -263,7 +263,7 @@ namespace dynamic {
 
     // lookup the list got again searching for existing key
     for ( ; hvalue != nullptr; hvalue = hvalue->pchain )
-      if ( hvalue->nhCode == nhcode && *hvalue == key )
+      if ( hvalue->nhCode == nhcode /*&& *hvalue == key */)
       {
         hentry.store( mtc::ptr::clean( hentry.load(
           std::memory_order_acquire ) ),
